@@ -66,15 +66,19 @@ function CoinIcon({ size = 24 }: { size?: number }) {
 }
 
 /** A big coin count plus one coin icon per coin, capped sensibly. */
-function CoinStack({ count }: { count: number }) {
+function CoinStack({ count, small = false }: { count: number; small?: boolean }) {
   const shown = Math.min(count, 20);
   return (
     <span className="inline-flex items-center gap-1 flex-wrap justify-center">
-      <span className="text-2xl font-extrabold text-accent-strong">{count}</span>
+      <span
+        className={`${small ? "text-base" : "text-2xl"} font-extrabold text-accent-strong`}
+      >
+        {count}
+      </span>
       {count > 0 && (
         <span className="inline-flex gap-0.5">
           {Array.from({ length: shown }, (_, i) => (
-            <CoinIcon key={i} size={20} />
+            <CoinIcon key={i} size={small ? 16 : 20} />
           ))}
         </span>
       )}
@@ -519,10 +523,7 @@ function SnackCard({
           </span>
         )}
         {countMode && coinPrice !== null && (
-          <span className="inline-flex items-center gap-1 whitespace-nowrap">
-            <span className="text-accent-strong font-extrabold">{coinPrice}</span>
-            <CoinIcon size={20} />
-          </span>
+          <CoinStack count={coinPrice} small />
         )}
       </div>
       {halfPrice && showPrice && (
