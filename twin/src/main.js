@@ -2603,7 +2603,11 @@ try {
   window.__twin.lights = lightsApi;
   lightsApi.applyVisibility();
   if (state.mode !== 'walk' && !LOW_POWER) {
-    setStatus('Hue lights live · Furniture drag · Alt-drag lights to reposition');
+    setStatus(
+      lightsApi.hueLive()
+        ? 'Hue lights live · Furniture drag · Alt-drag lights to reposition'
+        : 'Furniture drag · Alt-drag lights to reposition',
+    );
   }
 } catch (err) {
   console.error('[lights]', err);

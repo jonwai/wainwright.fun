@@ -26,9 +26,21 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { roomAtLayoutOrNearest, ROOM_FLOORS } from './roomLookup.js';
 import { EXTERIOR_ROOMS, scopeMaterialToRoom } from './layers.js';
 import { roomIndex } from './portals.js';
+import { getDeviceToken } from './pairing.js';
 
 /** Assets live under the app's vite base (e.g. /twin/) in production. */
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+/**
+ * Live Hue state endpoint. In dev, the vite middleware serves /api/hue/lights
+ * (no auth). In production the auth-gated sidecar on the home Mac serves
+ * https://home.wainwright.fun/twin/lights — probed once; unreachable/401
+ * hides the feature (off-LAN or unpaired).
+ */
+const HUE_ENDPOINT =
+  import.meta.env.DEV ? '/api/hue/lights' : 'https://home.wainwright.fun/twin/lights';
+/** null until the probe succeeds; pollHue is a no-op while null. */
+let hueEndpoint = null;
 
 const POLL_MS = 2500;
 
@@ -698,8 +710,12 @@ export async function initLights(opts) {
   }
 
   async function pollHue() {
+    if (!hueEndpoint) return; // probe failed earlier — feature hidden
     try {
-      const res = await fetch('/api/hue/lights');
+      const res = await fetch(hueEndpoint, {
+        headers: { Authorization: `Bearer ${getDeviceToken()}` },
+        signal: AbortSignal.timeout(2500),
+      });
       if (!res.ok) throw new Error(`hue ${res.status}`);
       const data = await res.json();
       const next = new Map();
@@ -899,6 +915,17 @@ export async function initLights(opts) {
   el.addEventListener('pointercancel', onPointerUp);
 
   applyVisibility();
+  // Probe the Hue endpoint once (2.5s timeout): success → poll every 2.5s,
+  // unreachable/401 → hide the feature entirely (no retry storm).
+  try {
+    const res = await fetch(HUE_ENDPOINT, {
+      headers: { Authorization: `Bearer ${getDeviceToken() ?? ''}` },
+      signal: AbortSignal.timeout(2500),
+    });
+    hueEndpoint = res.ok ? HUE_ENDPOINT : null;
+  } catch {
+    hueEndpoint = null;
+  }
   await pollHue();
   const pollTimer = setInterval(pollHue, POLL_MS);
 
@@ -908,6 +935,7 @@ export async function initLights(opts) {
     placementsDoc,
     applyVisibility,
     pollHue,
+    hueLive: () => !!hueEndpoint,
     updateBounceFills,
     dispose() {
       clearInterval(pollTimer);
