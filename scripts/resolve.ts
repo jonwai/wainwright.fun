@@ -334,6 +334,12 @@ export function resolveChildConfig(
       web_clip: true,
     },
     {
+      name: "Twin",
+      url: `https://twin.${config.domain}`,
+      hidden: true,
+      web_clip: true,
+    },
+    {
       name: `${child.name}'s previous page`,
       url: `https://${child.subdomain}.${config.domain}`,
       hidden: true,

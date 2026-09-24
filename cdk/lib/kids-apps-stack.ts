@@ -46,8 +46,9 @@ function handler(event) {
   var isAdmin = subdomain === "admin";
   var isSnacks = subdomain === "snacks";
   var isTickets = subdomain === "tickets";
+  var isTwin = subdomain === "twin";
 
-  if (!isAdmin && !isSnacks && !isTickets && (uri === "/admin" || uri.indexOf("/admin/") === 0 || uri.indexOf("/auth/") === 0)) {
+  if (!isAdmin && !isSnacks && !isTickets && !isTwin && (uri === "/admin" || uri.indexOf("/admin/") === 0 || uri.indexOf("/auth/") === 0)) {
     return {
       statusCode: 301,
       statusDescription: "Moved Permanently",
@@ -108,6 +109,21 @@ function handler(event) {
       return request;
     }
     request.uri = "/tickets" + uri;
+    return request;
+  }
+
+  if (isTwin) {
+    if (uri.indexOf("/twin/") === 0) {
+      if (uri === "/twin/" || uri.indexOf(".", 6) === -1) {
+        request.uri = "/twin/index.html";
+      }
+      return request;
+    }
+    if (uri === "/" || uri.endsWith("/") || uri.indexOf(".") === -1) {
+      request.uri = "/twin/index.html";
+      return request;
+    }
+    request.uri = "/twin" + uri;
     return request;
   }
 

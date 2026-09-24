@@ -19,3 +19,8 @@ certificates/
 # Logs
 *.log
 npm-debug.log*
+
+# twin: runtime assets synced from ~/Documents/home-twin (scripts/sync-twin-assets.ts)
+twin/public/model/
+twin/public/furniture/
+twin/public/lights/

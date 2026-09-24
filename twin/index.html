@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Home Twin</title>
+    <meta name="description" content="A 3D twin of our house" />
+    <meta name="theme-color" content="#101418" />
+    <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Twin" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <style>
+      :root {
+        --bg: #101418;
+        --panel: #1a2027;
+        --panel-border: #2a333d;
+        --text: #e8edf2;
+        --muted: #8a97a3;
+        --accent: #4fc3f7;
+        --accent-dim: #2a6d92;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #app { height: 100%; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.4 -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+        overflow: hidden;
+      }
+      #app { display: block; }
+
+      /* ---- 3D canvas ---- */
+      #view3d { position: fixed; inset: 0; }
+      /* Buffer size is set in JS (device pixels). CSS must fill the
+         viewport, otherwise a retina canvas displays at 2× and the
+         camera target sits in the bottom-right of the window. */
+      #view3d canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none; /* Walk look drag must not scroll the page */
+      }
+
+      /* ---- walk touch controls ---- */
+      #walk-hud {
+        display: none;
+        position: absolute;
+        inset: 0;
+        z-index: 15;
+        pointer-events: none;
+      }
+      body.walk-touch #walk-hud { display: block; }
+      /* walk-mode rooms hide is under room-list styles (also covers hamburger) */
+      #walk-hint {
+        position: absolute;
+        left: 50%;
+        top: 72px;
+        transform: translateX(-50%);
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        padding: 8px 14px;
+        color: var(--muted);
+        font-size: 13px;
+        box-shadow: 0 4px 16px rgba(0,0,0,.4);
+        pointer-events: none;
+        transition: opacity .4s ease;
+      }
+      #walk-hint b { color: var(--text); font-weight: 600; }
+      #walk-hint.fade { opacity: 0; }
+      #walk-stick {
+        position: absolute;
+        left: max(16px, env(safe-area-inset-left, 0px));
+        bottom: max(20px, env(safe-area-inset-bottom, 0px));
+        width: 112px;
+        height: 112px;
+        pointer-events: auto;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #walk-stick .base {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: rgba(26, 32, 39, 0.55);
+        border: 2px solid rgba(79, 195, 247, 0.35);
+        box-shadow: 0 4px 16px rgba(0,0,0,.35);
+      }
+      #walk-stick .knob {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 48px;
+        height: 48px;
+        margin: -24px 0 0 -24px;
+        border-radius: 50%;
+        background: rgba(79, 195, 247, 0.85);
+        border: 2px solid rgba(232, 237, 242, 0.5);
+        box-shadow: 0 2px 8px rgba(0,0,0,.4);
+        will-change: transform;
+      }
+
+      /* ---- top bar ---- */
+      #topbar {
+        position: absolute;
+        top: max(12px, env(safe-area-inset-top, 0px));
+        left: max(12px, env(safe-area-inset-left, 0px));
+        right: max(12px, env(safe-area-inset-right, 0px));
+        z-index: 20;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        box-shadow: 0 4px 16px rgba(0,0,0,.4);
+        max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+      }
+      #topbar h1 {
+        font-size: 13px;
+        font-weight: 600;
+        margin-right: 6px;
+        white-space: nowrap;
+      }
+      .seg {
+        display: flex;
+        background: var(--bg);
+        border: 1px solid var(--panel-border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .seg button {
+        background: none;
+        border: none;
+        color: var(--muted);
+        padding: 5px 12px;
+        font: inherit;
+        cursor: pointer;
+        min-height: 36px;
+      }
+      .seg button.active {
+        background: var(--accent-dim);
+        color: var(--text);
+      }
+      .seg button:hover:not(.active):not(:disabled) { color: var(--text); }
+      .seg button:disabled,
+      .seg button:disabled:hover {
+        opacity: 0.35;
+        cursor: default;
+        color: var(--muted);
+        background: none;
+      }
+      #topbar .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        color: var(--muted);
+        margin-left: 4px;
+      }
+      .icon-btn, .menu-toggle {
+        background: var(--bg);
+        border: 1px solid var(--panel-border);
+        border-radius: 6px;
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+        min-width: 40px;
+        min-height: 36px;
+        padding: 6px 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+      .icon-btn:hover, .menu-toggle:hover { color: var(--accent); }
+      .icon-btn[aria-expanded="true"],
+      .menu-toggle[aria-expanded="true"] {
+        background: var(--accent-dim);
+        color: var(--text);
+      }
+      #btn-rooms {
+        display: none; /* shown on narrow viewports */
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      /* Show layers dropdown (all sizes) */
+      #show-menu { position: relative; }
+      #show-seg.menu-panel {
+        display: none;
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        z-index: 30;
+        flex-direction: column;
+        min-width: 168px;
+        padding: 6px;
+        gap: 2px;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.45);
+        overflow: visible;
+      }
+      #show-menu.open #show-seg.menu-panel { display: flex; }
+      #show-seg.menu-panel button {
+        width: 100%;
+        text-align: left;
+        border-radius: 5px;
+        padding: 8px 12px;
+        min-height: 40px;
+      }
+      #show-seg.menu-panel button.active {
+        background: var(--accent-dim);
+      }
+
+      /* Real-mode time-of-day override (sun/moon). Hidden in Blocks. */
+      #tod-seg {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--bg);
+        border: 1px solid var(--panel-border);
+        border-radius: 6px;
+        padding: 2px 8px 2px 4px;
+      }
+      #tod-seg[hidden] { display: none !important; }
+      #tod-seg #tod-live {
+        background: none;
+        border: none;
+        color: var(--muted);
+        padding: 4px 8px;
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        border-radius: 4px;
+        min-height: 36px;
+      }
+      #tod-seg #tod-live.active {
+        background: var(--accent-dim);
+        color: var(--text);
+      }
+      #tod-seg #tod-live:hover { color: var(--text); }
+      #tod-seg #tod-slider {
+        width: 88px;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+      #tod-seg #tod-label {
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+        color: var(--text);
+        min-width: 3.2em;
+      }
+
+      /* ---- room list (desktop docked sidebar) ---- */
+      #rooms-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 25;
+        background: rgba(0,0,0,.45);
+      }
+      body.rooms-open #rooms-backdrop { display: block; }
+      #rooms {
+        position: absolute;
+        top: 64px;
+        left: 12px;
+        bottom: 12px;
+        z-index: 10;
+        width: 220px;
+        overflow-y: auto;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        padding: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,.4);
+        -webkit-overflow-scrolling: touch;
+      }
+      #rooms .rooms-head {
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 4px 4px 10px;
+        border-bottom: 1px solid var(--panel-border);
+        margin-bottom: 8px;
+        position: sticky;
+        top: 0;
+        background: var(--panel);
+        z-index: 1;
+      }
+      #rooms .rooms-head span {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      #rooms .rooms-head .icon-btn {
+        min-width: 40px;
+        min-height: 40px;
+      }
+      #rooms h2 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        color: var(--muted);
+        margin: 6px 4px;
+      }
+      #rooms .room {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: none;
+        border: none;
+        color: var(--text);
+        font: inherit;
+        padding: 10px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-height: 44px;
+      }
+      #rooms .room:hover { background: rgba(255,255,255,.06); }
+      #rooms .room.selected { background: var(--accent-dim); }
+      #rooms .room .id {
+        display: block;
+        font-size: 10px;
+        color: var(--muted);
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      }
+      #rooms .room.selected .id { color: var(--text); }
+
+      body.walk-mode #rooms,
+      body.walk-mode #rooms-backdrop,
+      body.walk-mode #btn-rooms { display: none !important; }
+      body.walk-mode { --rooms-open: 0; }
+
+      /* ---- status / hint ---- */
+      #status {
+        position: absolute;
+        bottom: max(12px, env(safe-area-inset-bottom, 0px));
+        right: max(12px, env(safe-area-inset-right, 0px));
+        z-index: 10;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        padding: 6px 12px;
+        color: var(--muted);
+        font-size: 12px;
+        max-width: min(360px, calc(100vw - 24px));
+      }
+      #status b { color: var(--text); font-weight: 600; }
+
+      /* ---- narrow / mobile chrome ---- */
+      @media (max-width: 800px) {
+        #btn-rooms { display: inline-flex; }
+        .desktop-only { display: none !important; }
+        #topbar {
+          top: max(8px, env(safe-area-inset-top, 0px));
+          left: max(8px, env(safe-area-inset-left, 0px));
+          right: max(8px, env(safe-area-inset-right, 0px));
+          padding: 6px 8px;
+          gap: 6px;
+        }
+        #topbar h1 { margin-right: 2px; font-size: 12px; }
+        .seg button { padding: 6px 10px; }
+        #tod-seg #tod-slider { width: 64px; }
+        /* Rooms become a slide-over drawer */
+        #rooms {
+          display: none;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          width: min(300px, 88vw);
+          border-radius: 0;
+          border-left: none;
+          border-top: none;
+          border-bottom: none;
+          z-index: 30;
+          padding: 8px 8px max(12px, env(safe-area-inset-bottom, 0px));
+          padding-top: max(8px, env(safe-area-inset-top, 0px));
+        }
+        body.rooms-open #rooms { display: block; }
+        #rooms .rooms-head { display: flex; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="view3d"></div>
+
+      <div id="topbar">
+        <button type="button" id="btn-rooms" class="icon-btn" aria-label="Rooms" aria-expanded="false" aria-controls="rooms" title="Rooms">☰</button>
+        <h1>Home Twin</h1>
+        <div class="seg" id="mode-seg">
+          <button id="btn-3d" class="active">3D</button>
+          <button id="btn-2d">2D</button>
+          <button id="btn-walk">Walk</button>
+        </div>
+        <div class="seg" id="look-seg">
+          <button type="button" data-look="blocks" class="active">Blocks</button>
+          <button type="button" data-look="real">Real</button>
+        </div>
+        <div id="tod-seg" hidden title="Real-mode outdoor time (Europe/London)">
+          <button type="button" id="tod-live" class="active" title="Follow live clock">Live</button>
+          <input type="range" id="tod-slider" min="0" max="24" step="0.25" value="12" aria-label="Time of day" />
+          <span id="tod-label">—</span>
+        </div>
+        <div class="seg" id="floor-seg">
+          <button data-floor="all" class="active">All</button>
+          <button data-floor="0">Ground</button>
+          <button data-floor="1">First</button>
+          <button data-floor="2">Second</button>
+        </div>
+        <div class="menu" id="show-menu">
+          <button type="button" id="btn-show" class="menu-toggle" aria-expanded="false" aria-haspopup="true" aria-controls="show-seg" title="Layer visibility">Show ▾</button>
+          <div class="seg menu-panel" id="show-seg" role="menu" aria-label="Show layers">
+            <button type="button" data-show="room" class="active" aria-pressed="true" role="menuitemcheckbox">Rooms</button>
+            <button type="button" data-show="floor" class="active" aria-pressed="true" role="menuitemcheckbox">Floors</button>
+            <button type="button" data-show="flooring" class="active" aria-pressed="true" role="menuitemcheckbox">Flooring</button>
+            <button type="button" data-show="door" class="active" aria-pressed="true" role="menuitemcheckbox">Doors</button>
+            <button type="button" data-show="window" class="active" aria-pressed="true" role="menuitemcheckbox">Windows</button>
+            <button type="button" data-show="roof" class="active" aria-pressed="true" role="menuitemcheckbox">Roof</button>
+            <button type="button" data-show="furniture" aria-pressed="false" role="menuitemcheckbox">Furniture</button>
+            <button type="button" data-show="lights" class="active" aria-pressed="true" role="menuitemcheckbox" title="Hue lights (live sync)">Lights</button>
+          </div>
+        </div>
+        <div class="seg desktop-only" id="furn-rot-seg" title="Select furniture, then rotate 90°">
+          <button type="button" id="btn-furn-rot-ccw" title="Rotate −90° (Q or [)">⟲ 90°</button>
+          <button type="button" id="btn-furn-rot-cw" title="Rotate +90° (R / E or ])">⟳ 90°</button>
+        </div>
+        <span class="label desktop-only">Walls</span>
+        <div class="seg desktop-only" id="wall-seg">
+          <button type="button" data-wall="external" class="active" aria-pressed="true">External</button>
+          <button type="button" data-wall="internal" class="active" aria-pressed="true">Internal</button>
+        </div>
+      </div>
+
+      <div id="rooms-backdrop" hidden></div>
+      <aside id="rooms" aria-label="Rooms">
+        <div class="rooms-head">
+          <span>Rooms</span>
+          <button type="button" id="btn-rooms-close" class="icon-btn" aria-label="Close rooms">✕</button>
+        </div>
+        <div id="rooms-body"></div>
+      </aside>
+
+      <div id="walk-hud" aria-hidden="true">
+        <div id="walk-hint"><b>Drag</b> to look · <b>stick</b> to move</div>
+        <div id="walk-stick" aria-label="Move">
+          <div class="base"></div>
+          <div class="knob" id="walk-stick-knob"></div>
+        </div>
+      </div>
+
+      <div id="status"></div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -75,6 +75,9 @@ npm run build:snacks
 echo "→ Building tickets site..."
 npm run build:tickets
 
+echo "→ Building twin site..."
+npm run build:twin
+
 echo "→ Uploading kids site and shared assets to s3://${BUCKET}/..."
 aws s3 sync "dist/" "s3://${BUCKET}/" \
   --exclude "admin/*" \
@@ -97,6 +100,11 @@ aws s3 sync "dist/tickets/" "s3://${BUCKET}/tickets/" \
   --delete \
   --cache-control "public, max-age=3600"
 
+echo "→ Uploading twin site..."
+aws s3 sync "dist/twin/" "s3://${BUCKET}/twin/" \
+  --delete \
+  --cache-control "public, max-age=3600"
+
 # Entry-point HTML must always revalidate: hashed assets can cache, but a cached
 # index.html pins the SPA to a stale bundle for up to max-age on the device
 # (CloudFront invalidation does not clear Safari's local cache).
@@ -113,6 +121,9 @@ aws s3 cp "dist/snacks/index.html" "s3://${BUCKET}/snacks/index.html" \
 aws s3 cp "dist/tickets/index.html" "s3://${BUCKET}/tickets/index.html" \
   --cache-control "no-cache" \
   --content-type "text/html"
+aws s3 cp "dist/twin/index.html" "s3://${BUCKET}/twin/index.html" \
+  --cache-control "no-cache" \
+  --content-type "text/html"
 
 echo "→ Invalidating CloudFront cache..."
 aws cloudfront create-invalidation \
@@ -127,5 +138,6 @@ echo "Kids site:  https://wainwright.fun"
 echo "Admin site: https://admin.wainwright.fun"
 echo "Snacks site: https://snacks.wainwright.fun"
 echo "Tickets site: https://tickets.wainwright.fun"
+echo "Twin site:  https://twin.wainwright.fun"
 echo "Auth domain: ${COGNITO_DOMAIN}"
 echo "API: ${API_URL}"

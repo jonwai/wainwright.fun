@@ -15,6 +15,8 @@
     "dev:snacks": "vite --config snacks/vite.config.ts",
     "build:tickets": "vite build --config tickets/vite.config.ts",
     "dev:tickets": "vite --config tickets/vite.config.ts",
+    "build:twin": "vite build --config twin/vite.config.ts",
+    "dev:twin": "vite --config twin/vite.config.ts",
     "check-bundle-ids": "tsx scripts/check-bundle-ids.ts",
     "verify-min-age": "tsx scripts/verify-min-age.ts",
     "extract-system-icons": "tsx scripts/extract-system-icons.ts",
@@ -34,7 +36,8 @@
     "jsqr": "^1.4.0",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "three": "^0.170.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
