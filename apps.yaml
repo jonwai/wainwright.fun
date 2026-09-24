@@ -1,0 +1,1253 @@
+domain: wainwright.fun
+site:
+  profile_button_text: Install iPad Profile
+profile:
+  organization: Wainwright Family
+restrictions:
+  - key: allowAccountModification
+    value: false
+    type: boolean
+  - key: allowActivityContinuation
+    value: false
+    type: boolean
+  - key: allowAddingGameCenterFriends
+    value: true
+    type: boolean
+  - key: allowAirDrop
+    value: false
+    type: boolean
+  - key: allowAirPlayIncomingRequests
+    value: false
+    type: boolean
+  - key: allowAirPrint
+    value: true
+    type: boolean
+  - key: allowAirPrintCredentialsStorage
+    value: true
+    type: boolean
+  - key: allowAirPrintiBeaconDiscovery
+    value: true
+    type: boolean
+  - key: allowAppCellularDataModification
+    value: false
+    type: boolean
+  - key: allowAppClips
+    value: false
+    type: boolean
+  - key: allowAppInstallation
+    value: true
+    type: boolean
+  - key: allowApplePersonalizedAdvertising
+    value: false
+    type: boolean
+  - key: allowAppRemoval
+    value: true
+    type: boolean
+  - key: allowAssistant
+    value: false
+    type: boolean
+  - key: allowAssistantUserGeneratedContent
+    value: false
+    type: boolean
+  - key: allowAssistantWhileLocked
+    value: false
+    type: boolean
+  - key: allowAutoCorrection
+    value: true
+    type: boolean
+  - key: allowAutomaticAppDownloads
+    value: true
+    type: boolean
+  - key: allowAutoUnlock
+    value: false
+    type: boolean
+  - key: allowBluetoothModification
+    value: true
+    type: boolean
+  - key: allowBookstore
+    value: false
+    type: boolean
+  - key: allowBookstoreErotica
+    value: true
+    type: boolean
+  - key: allowCamera
+    value: true
+    type: boolean
+  - key: allowCellularPlanModification
+    value: false
+    type: boolean
+  - key: allowChat
+    value: false
+    type: boolean
+  - key: allowCloudBackup
+    value: true
+    type: boolean
+  - key: allowCloudDocumentSync
+    value: true
+    type: boolean
+  - key: allowCloudKeychainSync
+    value: true
+    type: boolean
+  - key: allowCloudPhotoLibrary
+    value: true
+    type: boolean
+  - key: allowContinuousPathKeyboard
+    value: false
+    type: boolean
+  - key: allowDefinitionLookup
+    value: false
+    type: boolean
+  - key: allowDeviceNameModification
+    value: false
+    type: boolean
+  - key: allowDeviceSleep
+    value: true
+    type: boolean
+  - key: allowDiagnosticSubmission
+    value: false
+    type: boolean
+  - key: allowDictation
+    value: false
+    type: boolean
+  - key: allowEnablingRestrictions
+    value: true
+    type: boolean
+  - key: allowEnterpriseAppTrust
+    value: false
+    type: boolean
+  - key: allowEnterpriseBookBackup
+    value: false
+    type: boolean
+  - key: allowEnterpriseBookMetadataSync
+    value: false
+    type: boolean
+  - key: allowEraseContentAndSettings
+    value: false
+    type: boolean
+  - key: allowESIMModification
+    value: false
+    type: boolean
+  - key: allowESIMOutgoingTransfers
+    value: false
+    type: boolean
+  - key: allowExplicitContent
+    value: false
+    type: boolean
+  - key: allowFilesNetworkDriveAccess
+    value: false
+    type: boolean
+  - key: allowFilesUSBDriveAccess
+    value: false
+    type: boolean
+  - key: allowFindMyDevice
+    value: true
+    type: boolean
+  - key: allowFindMyFriends
+    value: true
+    type: boolean
+  - key: allowFindMyFriendsModification
+    value: false
+    type: boolean
+  - key: allowFingerprintForUnlock
+    value: false
+    type: boolean
+  - key: allowFingerprintModification
+    value: true
+    type: boolean
+  - key: allowGameCenter
+    value: false
+    type: boolean
+  - key: allowGlobalBackgroundFetchWhenRoaming
+    value: true
+    type: boolean
+  - key: allowHostPairing
+    value: 'true'
+    type: boolean
+  - key: allowImagePlayground
+    value: false
+    type: boolean
+  - key: allowInAppPurchases
+    value: false
+    type: boolean
+  - key: allowiTunes
+    value: true
+    type: boolean
+  - key: allowKeyboardShortcuts
+    value: false
+    type: boolean
+  - key: allowLiveVoicemail
+    value: false
+    type: boolean
+  - key: allowLockScreenControlCenter
+    value: false
+    type: boolean
+  - key: allowLockScreenNotificationsView
+    value: false
+    type: boolean
+  - key: allowLockScreenTodayView
+    value: false
+    type: boolean
+  - key: allowManagedAppsCloudSync
+    value: true
+    type: boolean
+  - key: allowMarketplaceAppInstallation
+    value: true
+    type: boolean
+  - key: allowMultiplayerGaming
+    value: true
+    type: boolean
+  - key: allowMusicService
+    value: false
+    type: boolean
+  - key: allowNews
+    value: false
+    type: boolean
+  - key: allowNotificationsModification
+    value: false
+    type: boolean
+  - key: allowOpenFromManagedToUnmanaged
+    value: true
+    type: boolean
+  - key: allowOpenFromUnmanagedToManaged
+    value: true
+    type: boolean
+  - key: allowOTAPKIUpdates
+    value: true
+    type: boolean
+  - key: allowPairedWatch
+    value: false
+    type: boolean
+  - key: allowPassbookWhileLocked
+    value: false
+    type: boolean
+  - key: allowPasscodeModification
+    value: false
+    type: boolean
+  - key: allowPasswordAutoFill
+    value: true
+    type: boolean
+  - key: allowPasswordProximityRequests
+    value: true
+    type: boolean
+  - key: allowPasswordSharing
+    value: true
+    type: boolean
+  - key: allowPersonalHotspotModification
+    value: false
+    type: boolean
+  - key: allowPersonalizedHandwritingResults
+    value: false
+    type: boolean
+  - key: allowPhotoStream
+    value: true
+    type: boolean
+  - key: allowPodcasts
+    value: false
+    type: boolean
+  - key: allowPredictiveKeyboard
+    value: false
+    type: boolean
+  - key: allowProximitySetupToNewDevice
+    value: false
+    type: boolean
+  - key: allowRadioService
+    value: false
+    type: boolean
+  - key: allowRemoteAppPairing
+    value: false
+    type: boolean
+  - key: allowRemoteScreenObservation
+    value: false
+    type: boolean
+  - key: allowSafari
+    value: true
+    type: boolean
+  - key: allowScreenShot
+    value: true
+    type: boolean
+  - key: allowSharedStream
+    value: true
+    type: boolean
+  - key: allowSpellCheck
+    value: false
+    type: boolean
+  - key: allowSpotlightInternetResults
+    value: false
+    type: boolean
+  - key: allowSystemAppRemoval
+    value: true
+    type: boolean
+  - key: allowUIAppInstallation
+    value: true
+    type: boolean
+  - key: allowUnpairedExternalBootToRecovery
+    value: false
+    type: boolean
+  - key: allowUntrustedTLSPrompt
+    value: false
+    type: boolean
+  - key: allowUSBRestrictedMode
+    value: true
+    type: boolean
+  - key: allowVideoConferencing
+    value: false
+    type: boolean
+  - key: allowVoiceDialing
+    value: false
+    type: boolean
+  - key: allowVPNCreation
+    value: false
+    type: boolean
+  - key: allowWallpaperModification
+    value: true
+    type: boolean
+  - key: forceAirDropUnmanaged
+    value: false
+    type: boolean
+  - key: forceAirPrintTrustedTLSRequirement
+    value: false
+    type: boolean
+  - key: forceAssistantProfanityFilter
+    value: false
+    type: boolean
+  - key: forceAuthenticationBeforeAutoFill
+    value: false
+    type: boolean
+  - key: forceAutomaticDateAndTime
+    value: true
+    type: boolean
+  - key: forceClassroomAutomaticallyJoinClasses
+    value: false
+    type: boolean
+  - key: forceClassroomRequestPermissionToLeaveClasses
+    value: false
+    type: boolean
+  - key: forceClassroomUnpromptedAppAndDeviceLock
+    value: false
+    type: boolean
+  - key: forceClassroomUnpromptedScreenObservation
+    value: false
+    type: boolean
+  - key: forceDelayedSoftwareUpdates
+    value: false
+    type: boolean
+  - key: forceEncryptedBackup
+    value: true
+    type: boolean
+  - key: forceITunesStorePasswordEntry
+    value: false
+    type: boolean
+  - key: forceLimitAdTracking
+    value: true
+    type: boolean
+  - key: forcePreserveESIMOnErase
+    value: false
+    type: boolean
+  - key: forceWatchWristDetection
+    value: false
+    type: boolean
+  - key: forceWiFiPowerOn
+    value: true
+    type: boolean
+  - key: forceWiFiWhitelisting
+    value: false
+    type: boolean
+  - key: ratingApps
+    value: 1000
+    type: integer
+  - key: ratingMovies
+    value: 100
+    type: integer
+  - key: ratingRegion
+    value: gb
+    type: string
+  - key: ratingTVShows
+    value: 100
+    type: integer
+  - key: safariAcceptCookies
+    value: 2
+    type: real
+  - key: safariAllowAutoFill
+    value: true
+    type: boolean
+  - key: safariAllowJavaScript
+    value: true
+    type: boolean
+  - key: safariAllowPopups
+    value: true
+    type: boolean
+  - key: safariForceFraudWarning
+    value: false
+    type: boolean
+children:
+  - name: Ethan
+    subdomain: ethan
+    date_of_birth: '2022-03-27'
+    color: orange
+    locked: true
+    avatar: 🦊
+  - name: Hannah
+    subdomain: hannah
+    date_of_birth: '2017-10-07'
+    color: red
+    locked: true
+    avatar: 🧜
+  - name: Joanna
+    subdomain: joanna
+    date_of_birth: '2025-06-20'
+    color: purple
+    locked: true
+    avatar: 🦄
+  - name: Lydia
+    subdomain: lydia
+    date_of_birth: '2019-04-25'
+    color: green
+    locked: true
+    avatar: 🧚
+  - name: Zoe
+    subdomain: zoe
+    date_of_birth: '2020-09-12'
+    color: blue
+    locked: true
+    avatar: 🍭
+apps:
+  - name: 1-Minute Maths
+    bundle_id: com.whiterosemaths.oneminutemathsks1
+    app_store_url: https://apps.apple.com/app/1-minute-maths/id1584136366
+    min_age: 3
+    category: Education
+  - name: 123 Numbers - Count & Tracing
+    bundle_id: com.rvappstudios.numbers123.toddler.counting.tracing
+    app_store_url: https://apps.apple.com/app/123-numbers-count-tracing/id1210356444
+    min_age: 0
+    category: Education
+  - name: ABC Kids - Tracing & Phonics
+    bundle_id: com.rvappstudios.abc-kids-toddler-tracing-phonics
+    app_store_url: https://apps.apple.com/app/abc-kids-tracing-phonics/id1112482869
+    min_age: 0
+    category: Education
+  - name: ABC Spelling - Spell & Phonics
+    bundle_id: com.rvappstudios.abc.spelling.toddler.spell.phonics
+    app_store_url: https://apps.apple.com/app/abc-spelling-spell-phonics/id1186728253
+    min_age: 3
+    category: Education
+  - name: Amazon Prime Video
+    bundle_id: com.amazon.aiv.AIVApp
+    app_store_url: https://apps.apple.com/app/amazon-prime-video/id545519333
+    min_age: 3
+    category: Entertainment
+  - name: Angry Birds Reloaded
+    bundle_id: com.rovio.abreloaded
+    app_store_url: https://apps.apple.com/app/angry-birds-reloaded/id1539172625
+    min_age: 3
+    category: Games
+  - name: Apple TV+
+    bundle_id: com.apple.tv
+    app_store_url: https://apps.apple.com/app/apple-tv/id1174078549
+    min_age: 0
+    category: Entertainment
+  - name: Baby Games - Piano, Baby Phone
+    bundle_id: com.rvappstudios.baby.games.piano.phone.kids
+    app_store_url: https://apps.apple.com/app/baby-games-piano-baby-phone/id1455967837
+    min_age: 0
+    category: Education
+  - name: Baby Phone & Kids Games
+    bundle_id: com.rvappstudios.baby.phone.kids.games.toddler.learning.apps.lucas.and.friends
+    app_store_url: https://apps.apple.com/app/baby-phone-and-kids-games/id6744884306
+    min_age: 0
+    category: Education
+  - name: Backgammon+
+    bundle_id: com.adikus.arcadebackgammon
+    app_store_url: https://apps.apple.com/app/backgammon/id1551850028
+    min_age: 3
+    category: Games
+  - name: Barbie Color Creations+
+    bundle_id: com.storytoys.barbiecoloring.ios.arcade
+    app_store_url: https://apps.apple.com/app/barbie-color-creations/id6502635017
+    min_age: 0
+    category: Games
+  - name: BBC Bitesize - Exam Revision
+    bundle_id: uk.co.bbc.bitesize
+    app_store_url: https://apps.apple.com/gb/app/bbc-bitesize-exam-revision/id1089215244
+    min_age: 6
+    category: Education
+  - name: BBC iPlayer
+    bundle_id: uk.co.bbc.iplayer
+    app_store_url: https://apps.apple.com/app/bbc-iplayer/id416580485
+    min_age: 0
+    category: Entertainment
+  - name: Bible
+    bundle_id: tv.lifechurch.bible
+    app_store_url: https://apps.apple.com/app/bible/id282935706
+    min_age: 6
+    category: Reference
+  - name: Bible App for Kids
+    bundle_id: tv.lifechurch.bible.kids
+    app_store_url: https://apps.apple.com/app/bible-app-for-kids/id668692393
+    min_age: 0
+    category: Education
+  - name: Boggle Arcade Edition
+    bundle_id: com.zynga.boggleplus
+    app_store_url: https://apps.apple.com/app/boggle-arcade-edition/id6453020941
+    min_age: 6
+    category: Games
+  - name: CBeebies Get Creative
+    bundle_id: uk.co.bbc.cbeebiesgetcreative
+    app_store_url: https://apps.apple.com/gb/app/cbeebies-get-creative/id1435609710
+    min_age: 4
+    category: Education
+  - name: CBeebies Learn
+    bundle_id: uk.co.bbc.cbeebiesgoexplore
+    app_store_url: https://apps.apple.com/gb/app/cbeebies-learn/id1444626898
+    min_age: 0
+    category: Education
+  - name: CBeebies Playtime Island
+    bundle_id: uk.co.bbc.cbeebiesplaytimeisland
+    app_store_url: https://apps.apple.com/gb/app/cbeebies-playtime-island/id1140156471
+    min_age: 0
+    category: Entertainment
+  - name: CBeebies Storytime
+    bundle_id: uk.co.bbc.cbeebiesstorytime
+    app_store_url: https://apps.apple.com/gb/app/cbeebies-storytime/id891730883
+    min_age: 0
+    category: Entertainment
+  - name: Channel 4
+    bundle_id: uk.co.channel4.ios.4od
+    app_store_url: https://apps.apple.com/app/channel-4/id432494037
+    min_age: 6
+    category: Entertainment
+  - name: Checkers Royal+
+    bundle_id: com.gamma.checkers.arc
+    app_store_url: https://apps.apple.com/app/checkers-royal/id1550163552
+    min_age: 3
+    category: Games
+  - name: Chess Universe+
+    bundle_id: com.kingsofgames.chessuniverseplus
+    app_store_url: https://apps.apple.com/app/chess-universe/id1658570839
+    min_age: 6
+    category: Games
+  - name: Coloring Games - Painting & Glow
+    bundle_id: com.rvappstudios.kids.coloring.book.color.painting
+    app_store_url: https://apps.apple.com/app/coloring-games-painting-glow/id1480696573
+    min_age: 0
+    category: Education
+  - name: Colors & Shapes
+    bundle_id: com.rvappstudios.shapes.colors.toddler
+    app_store_url: https://apps.apple.com/app/colors-shapes-learn-color/id1272085786
+    min_age: 0
+    category: Education
+  - name: Cooking Mama Cuisine!
+    bundle_id: jp.co.ofcr.cmA00
+    app_store_url: https://apps.apple.com/app/cooking-mama-cuisine/id1563901930
+    min_age: 3
+    category: Games
+  - name: Crayola Adventures
+    bundle_id: com.crayolallc.adventures
+    app_store_url: https://apps.apple.com/app/crayola-adventures/id6444109249
+    min_age: 0
+    category: Games
+  - name: Crayola Create and Play+
+    bundle_id: com.crayolallc.crayola-create-and-play-plus
+    app_store_url: https://apps.apple.com/app/crayola-create-and-play/id1576250960
+    min_age: 0
+    category: Games
+  - name: Crayola Scribble Scrubbie+
+    bundle_id: com.crayolallc.crayola-scribble-scrubbie-pets-plus
+    app_store_url: https://apps.apple.com/app/crayola-scribble-scrubbie/id6744193586
+    min_age: 0
+    category: Games
+  - name: Crossy Road Castle
+    bundle_id: com.hipsterwhale.crossycastle
+    app_store_url: https://apps.apple.com/app/crossy-road-castle/id1478978570
+    min_age: 3
+    category: Games
+  - name: Cut the Rope 3
+    bundle_id: com.zeptolab.ctr3
+    app_store_url: https://apps.apple.com/app/cut-the-rope-3/id997332884
+    min_age: 3
+    category: Games
+  - name: Disney Coloring World+
+    bundle_id: com.storytoys.disney.pixar.coloring.princess.ios.arcade
+    app_store_url: https://apps.apple.com/app/disney-colouring-world/id1644114544
+    min_age: 0
+    category: Games
+  - name: Disney Dreamlight Valley
+    bundle_id: com.gameloft.DisneyDreamlightValley.arcade
+    app_store_url: https://apps.apple.com/app/disney-dreamlight-valley/id6456945575
+    min_age: 6
+    category: Games
+  - name: Disney Magic Timer by Oral-B
+    bundle_id: DisneyDigitalBooks.DisneyMagicBrushTimer
+    app_store_url: https://apps.apple.com/gb/app/disney-magic-timer-by-oral-b/id747541884
+    min_age: 4
+    category: Health & Fitness
+  - name: Disney SpellStruck
+    bundle_id: com.artistarcade.hyperion
+    app_store_url: https://apps.apple.com/app/disney-spellstruck/id1616724721
+    min_age: 6
+    category: Games
+  - name: Disney+
+    bundle_id: com.disney.disneyplus
+    app_store_url: https://apps.apple.com/app/disney/id1446075923
+    min_age: 0
+    category: Entertainment
+  - name: 'Dominoes: Classic Tile Game+'
+    bundle_id: com.mobilityware.DominoesAA
+    app_store_url: https://apps.apple.com/app/dominoes-classic-tile-game/id6747783951
+    min_age: 3
+    category: Games
+  - name: Drawing Games - Draw & Color
+    bundle_id: com.rvappstudios.kids.drawing.games.coloring.book.paint
+    app_store_url: https://apps.apple.com/app/drawing-games-draw-color/id1547228861
+    min_age: 3
+    category: Education
+  - name: Duolingo
+    bundle_id: com.duolingo.DuolingoMobile
+    app_store_url: https://apps.apple.com/app/duolingo-language-lessons/id570060128
+    min_age: 6
+    category: Education
+  - name: Epic
+    bundle_id: com.getepic.Epic
+    app_store_url: https://apps.apple.com/app/epic-kids-books-reading/id719219382
+    min_age: 3
+    category: Education
+  - name: Fruit Ninja Classic+
+    bundle_id: com.halfbrick.fruitninjaapplearcade
+    app_store_url: https://apps.apple.com/app/fruit-ninja-classic/id1552127102
+    min_age: 3
+    category: Games
+  - name: GarageBand
+    bundle_id: com.apple.mobilegarageband
+    app_store_url: https://apps.apple.com/app/garageband/id408709785
+    min_age: 3
+    category: Music
+  - name: 'Hearts: Card Game+'
+    bundle_id: com.mobilityware.HeartsAA
+    app_store_url: https://apps.apple.com/app/hearts-card-game/id1585858114
+    min_age: 3
+    category: Games
+  - name: Hello Kitty Island Adventure
+    bundle_id: com.SunblinkEntertainment.HelloKitty
+    app_store_url: https://apps.apple.com/app/hello-kitty-island-adventure/id1553505132
+    min_age: 3
+    category: Games
+  - name: Hopscotch
+    bundle_id: com.hopscotch.Hopscotch
+    app_store_url: https://apps.apple.com/app/hopscotch-programming-for-kids/id617098629
+    min_age: 6
+    category: Education
+  - name: iMovie
+    bundle_id: com.apple.iMovie
+    app_store_url: https://apps.apple.com/app/imovie/id377298193
+    min_age: 3
+    category: Photo & Video
+  - name: ITVX
+    bundle_id: com.itv.itvplayer
+    app_store_url: https://apps.apple.com/app/itvx/id446079916
+    min_age: 0
+    category: Entertainment
+  - name: Jigsaw Puzzle+
+    bundle_id: com.mobilityware.JigsawAA
+    app_store_url: https://apps.apple.com/app/jigsaw-puzzle-by-mobilityware/id1603688971
+    min_age: 3
+    category: Games
+  - name: Khan Academy Kids
+    bundle_id: org.khanacademy.Khan-Kids
+    app_store_url: https://apps.apple.com/app/khan-academy-kids/id1378467217
+    min_age: 0
+    category: Education
+  - name: Kids Games - For Toddlers 3-5
+    bundle_id: com.rvappstudios.baby.toddler.kids.games.learning.activity
+    app_store_url: https://apps.apple.com/app/kids-games-for-toddlers-3-5/id1613310657
+    min_age: 0
+    category: Education
+  - name: Kids Music - Piano, Xylo, Drums
+    bundle_id: com.rvappstudios.kids.games.music.baby.piano.songs.lucas.and.friends
+    app_store_url: https://apps.apple.com/app/kids-music-piano-xylo-drums/id6747074172
+    min_age: 0
+    category: Music
+  - name: LEGO Brawls
+    bundle_id: com.lego.games.brawls
+    app_store_url: https://apps.apple.com/app/lego-brawls/id1466964862
+    min_age: 6
+    category: Games
+  - name: LEGO Builder
+    bundle_id: com.lego.legobuildinginstructions
+    app_store_url: https://apps.apple.com/app/lego-builder-3d-instructions/id1486159728
+    min_age: 6
+    category: Entertainment
+  - name: LEGO DUPLO Peppa Pig
+    bundle_id: com.storytoys.lego.duplo.peppa.pig.ios
+    app_store_url: https://apps.apple.com/app/lego-duplo-peppa-pig/id6474300843
+    min_age: 0
+    category: Education
+  - name: LEGO DUPLO World+
+    bundle_id: com.storytoys.duploworld.free.ios.arcade
+    app_store_url: https://apps.apple.com/app/lego-duplo-world/id1644114756
+    min_age: 0
+    category: Games
+  - name: LEGO Friends Heartlake Rush+
+    bundle_id: com.lego.friends.heartlake.arcade
+    app_store_url: https://apps.apple.com/app/lego-friends-heartlake-rush/id6740321198
+    min_age: 3
+    category: Games
+  - name: LEGO® DUPLO® MARVEL
+    bundle_id: com.storytoys.lego.duplo.marvel.spiderman.avengers.kids.preschool.free.ios
+    app_store_url: https://apps.apple.com/gb/app/lego-duplo-marvel/id1573101225
+    min_age: 4
+    category: Education
+  - name: 'Lightbot: Code Hour'
+    bundle_id: com.lightbot.onehour
+    app_store_url: https://apps.apple.com/app/lightbot-code-hour/id873943739
+    min_age: 6
+    category: Education
+  - name: Math Games - Learn + - x ÷
+    bundle_id: com.rvappstudios.math.games.kids.addition.subtraction.multiplication.division
+    app_store_url: https://apps.apple.com/app/math-games-learn-x/id1525694602
+    min_age: 6
+    category: Education
+  - name: Math Kids - Add, Subtract, Count
+    bundle_id: com.rvappstudios.math.kids.counting.add.subtract
+    app_store_url: https://apps.apple.com/app/math-kids-add-subtract-count/id1272098657
+    min_age: 3
+    category: Education
+  - name: Meet the Alphablocks!
+    bundle_id: uk.co.blue-zoo.meet-the-alphablocks
+    app_store_url: https://apps.apple.com/gb/app/meet-the-alphablocks/id938119032
+    min_age: 0
+    category: Education
+  - name: Meet the Colourblocks!
+    bundle_id: tv.alphablocks.meetthecolourblocks
+    app_store_url: https://apps.apple.com/gb/app/meet-the-colourblocks/id1631099077
+    min_age: 0
+    category: Education
+  - name: Meet the Numberblocks!
+    bundle_id: uk.co.bluezoo.numberblocks.meet
+    app_store_url: https://apps.apple.com/gb/app/meet-the-numberblocks/id1445555400
+    min_age: 0
+    category: Education
+  - name: Meet the Wonderblocks!
+    bundle_id: tv.alphablocks.meetthewonderblocks
+    app_store_url: https://apps.apple.com/gb/app/meet-the-wonderblocks/id6738746557
+    min_age: 4
+    category: Games
+  - name: Mimo
+    bundle_id: com.getmimo.mimo
+    app_store_url: https://apps.apple.com/app/mimo-learn-coding-programming/id1133960732
+    min_age: 11
+    category: Education
+  - name: Minecraft
+    bundle_id: com.mojang.minecraftpe
+    app_store_url: https://apps.apple.com/app/minecraft/id479516143
+    min_age: 11
+    category: Games
+  - name: Mini Metro+
+    bundle_id: com.dinopoloclub.minimetro.arcade
+    app_store_url: https://apps.apple.com/app/mini-metro/id1550663539
+    min_age: 3
+    category: Games
+  - name: Mini Motorways
+    bundle_id: com.dinopoloclub.minimotorways
+    app_store_url: https://apps.apple.com/app/mini-motorways/id1453901000
+    min_age: 3
+    category: Games
+  - name: Minno Kids
+    bundle_id: com.bloommedia.jellytelly
+    app_store_url: https://apps.apple.com/app/minno-kids-bible-videos/id705286113
+    min_age: 0
+    category: Entertainment
+  - name: Multiplication Math For Kids
+    bundle_id: com.rvappstudios.kids.multiplication.games.multiply.math
+    app_store_url: https://apps.apple.com/app/multiplication-math-for-kids/id1455322707
+    min_age: 6
+    category: Education
+  - name: 'My Little Pony: Mane Merge'
+    bundle_id: com.gameloft.mylittlepony.arcade
+    app_store_url: https://apps.apple.com/app/my-little-pony-mane-merge/id1596302742
+    min_age: 6
+    category: Games
+  - name: My Talking Angela 2+
+    bundle_id: com.outfit7.mytalkingangela2.arcade
+    app_store_url: https://apps.apple.com/app/my-talking-angela-2/id6446493209
+    min_age: 3
+    category: Games
+  - name: My Talking Tom 2+
+    bundle_id: com.outfit7.mytalkingtom2.applearcade
+    app_store_url: https://apps.apple.com/app/my-talking-tom-2/id6761451337
+    min_age: 3
+    category: Games
+  - name: My Very Hungry Caterpillar+
+    bundle_id: com.storytoys.myveryhungrycaterpillar.free.ios.arcade
+    app_store_url: https://apps.apple.com/app/my-very-hungry-caterpillar/id6740270717
+    min_age: 0
+    category: Games
+  - name: Netflix
+    bundle_id: com.netflix.Netflix
+    app_store_url: https://apps.apple.com/app/netflix/id363590051
+    min_age: 3
+    category: Entertainment
+  - name: Netflix Playground
+    bundle_id: com.netflix.Butterfly
+    app_store_url: https://apps.apple.com/app/netflix-playground/id6746772941
+    min_age: 0
+    category: Education
+  - name: Number Kids - Math Games
+    bundle_id: com.rvappstudios.montessori.math.games.kids.number.counting
+    app_store_url: https://apps.apple.com/app/number-kids-math-games/id1565484251
+    min_age: 3
+    category: Education
+  - name: Offline Games & 2 Player Games
+    bundle_id: com.rvappstudios.offline.games.and.two.player.games.kids.lucas.and.friends
+    app_store_url: https://apps.apple.com/app/offline-games-2-player-games/id6760128613
+    min_age: 3
+    category: Games
+  - name: PAC-MAN Party Royale
+    bundle_id: jp.co.bandainamcoent.BNEI0360
+    app_store_url: https://apps.apple.com/app/pac-man-party-royale/id1465543094
+    min_age: 3
+    category: Games
+  - name: Paramount+
+    bundle_id: com.cbs.canada.app
+    app_store_url: https://apps.apple.com/app/paramount/id1340650234
+    min_age: 6
+    category: Entertainment
+  - name: Piffle+
+    bundle_id: com.hipsterwhale.piffleplus
+    app_store_url: https://apps.apple.com/app/piffle/id6742088715
+    min_age: 3
+    category: Games
+  - name: Play-Doh World
+    bundle_id: com.scarybeasties.playdohworld
+    app_store_url: https://apps.apple.com/app/play-doh-world/id6692621197
+    min_age: 0
+    category: Games
+  - name: Prodigy Math
+    bundle_id: com.prodigygame.prodigy
+    app_store_url: https://apps.apple.com/app/prodigy-math-game/id950795722
+    min_age: 6
+    category: Education
+  - name: Puzzle Games For Kids 3+
+    bundle_id: com.rvappstudios.jigsaw.puzzles.kids
+    app_store_url: https://apps.apple.com/app/puzzle-games-for-kids-3-years/id1244400052
+    min_age: 3
+    category: Education
+  - name: Pythonista 3
+    bundle_id: com.omz-software.Pythonista3
+    app_store_url: https://apps.apple.com/app/pythonista-3/id1085978097
+    min_age: 11
+    category: Productivity
+  - name: Reading Eggs
+    bundle_id: com.blake.readingeggs
+    app_store_url: https://apps.apple.com/app/reading-eggs-learn-to-read/id726696040
+    min_age: 3
+    category: Education
+  - name: Replit
+    bundle_id: com.replit.app
+    app_store_url: https://apps.apple.com/app/replit/id1614022293
+    min_age: 11
+    category: Developer Tools
+  - name: Roblox
+    bundle_id: com.roblox.robloxmobile
+    app_store_url: https://apps.apple.com/app/roblox/id431946152
+    min_age: 11
+    category: Games
+  - name: Sago Mini School
+    bundle_id: com.sagosago.School
+    app_store_url: https://apps.apple.com/app/sago-mini-school/id1483068197
+    min_age: 0
+    category: Education
+  - name: Sago Mini Trips+
+    bundle_id: com.sagomini.Trips
+    app_store_url: https://apps.apple.com/app/sago-mini-trips/id6473044987
+    min_age: 0
+    category: Games
+  - name: Sago Mini World
+    bundle_id: com.sagosago.Friends
+    app_store_url: https://apps.apple.com/app/sago-mini-world/id874425722
+    min_age: 0
+    category: Education
+  - name: ScratchJr
+    bundle_id: edu.mitmedialab.scratchjr
+    app_store_url: https://apps.apple.com/app/scratchjr/id895485086
+    min_age: 3
+    category: Education
+  - name: Sesame Street Games Club+
+    bundle_id: com.storytoys.sesame.street.mecha.builders.ios.arcade
+    app_store_url: https://apps.apple.com/app/sesame-street-games-club/id6738959688
+    min_age: 0
+    category: Games
+  - name: Sight Words - Pre-K to 3rd
+    bundle_id: com.rvappstudios.sight.words.phonics.reading.kids.games
+    app_store_url: https://apps.apple.com/app/sight-words-pre-k-to-3rd/id1498466300
+    min_age: 3
+    category: Education
+  - name: Sky Go
+    bundle_id: com.bskyb.skygo
+    app_store_url: https://apps.apple.com/app/sky-go/id446086440
+    min_age: 3
+    category: Entertainment
+  - name: Snake.io+
+    bundle_id: com.kooapps.snakearcade
+    app_store_url: https://apps.apple.com/app/snake-io/id6443553808
+    min_age: 3
+    category: Games
+  - name: Solitaire by MobilityWare+
+    bundle_id: com.mobilityware.SolitaireAA
+    app_store_url: https://apps.apple.com/app/solitaire-by-mobilityware/id1556715867
+    min_age: 3
+    category: Games
+  - name: Sololearn
+    bundle_id: com.sololearn
+    app_store_url: https://apps.apple.com/app/sololearn-learn-to-code/id1210079064
+    min_age: 11
+    category: Education
+  - name: Sonic Dash+
+    bundle_id: com.sega.sonicdashplus
+    app_store_url: https://apps.apple.com/app/sonic-dash/id1608888053
+    min_age: 3
+    category: Games
+  - name: Sonic Racing
+    bundle_id: com.sega.kartios
+    app_store_url: https://apps.apple.com/app/sonic-racing/id1358659909
+    min_age: 3
+    category: Games
+  - name: 'Spades: Card Game+'
+    bundle_id: com.mobilityware.SpadesAA
+    app_store_url: https://apps.apple.com/app/spades-card-game/id1585858397
+    min_age: 3
+    category: Games
+  - name: Spider Solitaire+
+    bundle_id: com.mobilityware.SpiderAA
+    app_store_url: https://apps.apple.com/app/spider-solitaire-card-game/id1620202619
+    min_age: 6
+    category: Games
+  - name: SpongeBob Patty Pursuit
+    bundle_id: com.mtvn.spongebobemerald
+    app_store_url: https://apps.apple.com/app/spongebob-patty-pursuit/id1459922619
+    min_age: 3
+    category: Games
+  - name: SpongeBob Patty Pursuit 2
+    bundle_id: com.mtvn.spongebobemerald2
+    app_store_url: https://apps.apple.com/app/spongebob-patty-pursuit-2/id6472008605
+    min_age: 3
+    category: Games
+  - name: Subway Surfers+
+    bundle_id: com.sybogames.subwaysurfers.plus
+    app_store_url: https://apps.apple.com/app/subway-surfers/id6744608300
+    min_age: 3
+    category: Games
+  - name: Sudoku by MobilityWare+
+    bundle_id: com.mobilityware.SudokuAA
+    app_store_url: https://apps.apple.com/app/sudoku-by-mobilityware/id1556715970
+    min_age: 3
+    category: Games
+  - name: SunScool
+    bundle_id: com.Sunscool.Sunscool
+    app_store_url: https://apps.apple.com/app/sunscool/id959883048
+    min_age: 0
+    category: Education
+  - name: Superbook Kids Bible
+    bundle_id: com.cbn.superbook-bible
+    app_store_url: https://apps.apple.com/app/superbook-kids-bible/id606378030
+    min_age: 0
+    category: Reference
+  - name: Tangram Puzzle - Polygrams
+    bundle_id: com.rvappstudios.tangram.blocks.puzzle.brain.games
+    app_store_url: https://apps.apple.com/app/tangram-puzzle-polygrams-game/id1640004973
+    min_age: 6
+    category: Games
+  - name: Teach Your Monster to Read
+    bundle_id: com.teachyourmonstertoread.tm1
+    app_store_url: https://apps.apple.com/app/teach-your-monster-to-read/id828392046
+    min_age: 3
+    category: Education
+  - name: The Game of Life 2+
+    bundle_id: com.marmalade.gol2.aa
+    app_store_url: https://apps.apple.com/app/the-game-of-life-2/id6740409686
+    min_age: 6
+    category: Games
+  - name: Thomas & Friends Let's Roll+
+    bundle_id: com.storytoys.thomasandfriends.ios.arcade
+    app_store_url: https://apps.apple.com/app/thomas-friends-lets-roll/id6739776352
+    min_age: 0
+    category: Games
+  - name: Times Tables Rock Stars
+    bundle_id: com.ttrockstars.app
+    app_store_url: https://apps.apple.com/app/times-tables-rock-stars/id973811326
+    min_age: 6
+    category: Education
+  - name: Tiny Wings+
+    bundle_id: com.andreasilliger.tinywingsarcade
+    app_store_url: https://apps.apple.com/app/tiny-wings/id1574882204
+    min_age: 3
+    category: Games
+  - name: Toca Boca Jr Classics
+    bundle_id: com.sagomini.TocaBocaJrClassics
+    app_store_url: https://apps.apple.com/app/toca-boca-jr-classics/id6741918757
+    min_age: 0
+    category: Games
+  - name: Toca Boca World
+    bundle_id: com.tocaboca.tocalifeworld
+    app_store_url: https://apps.apple.com/app/toca-boca-world/id1208138685
+    min_age: 3
+    category: Education
+  - name: Toddler & Preschool Kids Games
+    bundle_id: com.rvappstudios.toddler.preschool.kids.learning.games
+    app_store_url: https://apps.apple.com/app/toddler-preschool-kids-games/id6472886437
+    min_age: 0
+    category: Education
+  - name: Tynker
+    bundle_id: com.tynker.Tynker
+    app_store_url: https://apps.apple.com/app/tynker-coding-for-kids/id805869467
+    min_age: 6
+    category: Education
+  - name: UNO Arcade Edition
+    bundle_id: com.mattel163.unoarcade
+    app_store_url: https://apps.apple.com/app/uno-arcade-edition/id6478143757
+    min_age: 3
+    category: Games
+  - name: Word Search - Word Find Games
+    bundle_id: com.rvappstudios.word.search.puzzle.game
+    app_store_url: https://apps.apple.com/app/word-search-word-find-games/id1463577765
+    min_age: 6
+    category: Games
+  - name: Zen Pinball Party
+    bundle_id: com.zenstudios.pinballaa
+    app_store_url: https://apps.apple.com/app/zen-pinball-party/id1536783591
+    min_age: 6
+    category: Games
+system_apps:
+  - bundle_id: com.apple.AppStore
+    name: App Store
+    min_age: 0
+    show_on_site: true
+    icon: app-store
+    category: Utilities
+  - bundle_id: com.apple.calculator
+    name: Calculator
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/calculator/id1069511488
+    category: Utilities
+  - bundle_id: com.apple.mobilecal
+    name: Calendar
+    min_age: 3
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/calendar/id1108185179
+    category: Productivity
+  - bundle_id: com.apple.camera
+    name: Camera
+    min_age: 0
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/camera/id1584216193
+    category: Photo & Video
+  - bundle_id: com.apple.mobiletimer
+    name: Clock
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/clock/id1584215688
+    category: Utilities
+  - bundle_id: com.apple.Compass
+    name: Compass
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/compass/id1067456176
+    category: Navigation
+  - bundle_id: com.apple.findmy
+    name: Find My
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/find-my/id1514844621
+    category: Utilities
+  - bundle_id: com.apple.freeform
+    name: Freeform
+    min_age: 0
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/freeform/id6443742539
+    category: Productivity
+  - bundle_id: com.apple.journal
+    name: Journal
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/journal/id6447391597
+    category: Health & Fitness
+  - bundle_id: com.apple.Maps
+    name: Maps
+    min_age: 3
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/apple-maps/id915056765
+    category: Navigation
+  - bundle_id: com.apple.Measure
+    name: Measure
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/measure/id1383426740
+    category: Utilities
+  - bundle_id: com.apple.MobileSMS
+    name: Messages
+    min_age: 12
+    show_on_site: true
+    icon: messages
+    category: Social Networking
+  - bundle_id: com.apple.mobilenotes
+    name: Notes
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/notes/id1110145109
+    category: Productivity
+  - bundle_id: com.apple.Numbers
+    name: Numbers
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/numbers/id361304891
+    category: Productivity
+  - bundle_id: com.apple.Pages
+    name: Pages
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/pages/id361309726
+    category: Productivity
+  - bundle_id: com.apple.Passwords
+    name: Passwords
+    min_age: 0
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/passwords/id6473799789
+    category: Utilities
+  - bundle_id: com.apple.Photo-Booth
+    name: Photo Booth
+    min_age: 0
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/photo-booth/id1208226939
+    category: Photo & Video
+  - bundle_id: com.apple.mobileslideshow
+    name: Photos
+    min_age: 3
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/photos/id1584215428
+    category: Photo & Video
+  - bundle_id: com.apple.reminders
+    name: Reminders
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/reminders/id1108187841
+    category: Productivity
+  - bundle_id: com.apple.mobilesafari
+    name: Safari
+    min_age: 0
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/safari/id1146562112
+    category: Utilities
+  - bundle_id: com.apple.Preferences
+    name: Settings
+    min_age: 0
+    show_on_site: false
+    icon: settings
+    category: Utilities
+  - bundle_id: com.apple.Translate
+    name: Translate
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/translate/id1514844618
+    category: Utilities
+  - bundle_id: com.apple.weather
+    name: Weather
+    min_age: 6
+    show_on_site: true
+    app_store_url: https://apps.apple.com/app/weather/id1069513131
+    category: Weather
+  - bundle_id: com.apple.webapp
+    name: Web Clips
+    min_age: 0
+    show_on_site: false
+    icon: web-clips
+    category: Utilities
+websites:
+  - name: Artistacat
+    url: https://artistacat.com
+    min_age: 0
+    category: Graphics & Design
+  - name: BBC Bitesize
+    url: https://www.bbc.co.uk/bitesize/primary
+    min_age: 6
+    icon: bbc-bitesize.png
+    category: Education
+  - name: Busy Things
+    url: https://www.busythings.co.uk
+    min_age: 3
+    category: Education
+  - name: CBBC
+    url: https://www.bbc.co.uk/cbbc
+    min_age: 6
+    icon: bbc-cbbc.png
+    category: Entertainment
+  - name: CBeebies
+    url: https://www.bbc.co.uk/cbeebies
+    min_age: 0
+    icon: bbc-cbeebies.png
+    category: Education
+  - name: Chrome Music Lab
+    url: https://musiclab.chromeexperiments.com
+    min_age: 3
+    category: Music
+  - name: Cool Math Games
+    url: https://www.coolmathgames.com
+    min_age: 6
+    category: Games
+  - name: ICT Games
+    url: https://www.ictgames.com
+    min_age: 3
+    category: Education
+  - name: Khan Academy
+    url: https://www.khanacademy.org
+    min_age: 6
+    category: Education
+  - name: Learning by Questions
+    url: https://www.lbq.org
+    min_age: 3
+    category: Education
+  - name: Nat Geo Kids
+    url: https://kids.nationalgeographic.com
+    min_age: 6
+    category: Education
+  - name: Newsround
+    url: https://www.bbc.co.uk/newsround
+    min_age: 6
+    icon: bbc-newsround.png
+    category: News
+  - name: Oxford Owl for Home
+    url: https://home.oxfordowl.co.uk
+    min_age: 3
+    category: Education
+  - name: PBS Kids
+    url: https://pbskids.org
+    min_age: 0
+    category: Education
+  - name: Scratch
+    url: https://www.scratch.mit.edu
+    min_age: 6
+    category: Education
+  - name: Starfall
+    url: https://www.starfall.com
+    min_age: 0
+    category: Education
+  - name: Storyline Online
+    url: https://storylineonline.net
+    min_age: 0
+    category: Education
+  - name: Wainsbury's
+    url: https://wainsburys.co.uk
+    min_age: 0
+    category: Shopping
+age_bands:
+  - from_age: 0
+    theme: little
+    subtitle: Tap a picture to get an app.
+  - from_age: 3
+    theme: early
+    subtitle: Tap an app or website — ask a parent if you need the latest profile.
+  - from_age: 6
+    theme: primary
+    subtitle: Tap an app or website — ask a parent if you need the latest profile.
+  - from_age: 11
+    theme: teen
+    subtitle: Tap an app or website — install the profile again when it updates.

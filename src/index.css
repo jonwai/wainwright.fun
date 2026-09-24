@@ -1,0 +1,587 @@
+@import "tailwindcss";
+
+/* ── Design tokens ──────────────────────────────────────────────
+   Map CSS variables to Tailwind theme tokens so utilities like
+   bg-surface, text-muted, border-border resolve through the
+   variable cascade.  Theme and per-child accent classes below
+   override these variables at runtime. */
+
+@theme {
+  --color-bg: #eef1ff;
+  --color-bg-accent: #fde8f3;
+  --color-surface: rgba(255, 255, 255, 0.82);
+  --color-surface-solid: #ffffff;
+  --color-text: #1b1b2f;
+  --color-muted: #5f6478;
+  --color-accent: #5b6cff;
+  --color-accent-strong: #3f4fe0;
+  --color-accent-soft: rgba(91, 108, 255, 0.12);
+  --color-border: rgba(27, 27, 47, 0.08);
+  --color-danger: #ef4444;
+
+  --radius-xl: 24px;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+
+  --font-sans: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --shadow-card: 0 18px 50px rgba(63, 79, 224, 0.12);
+  --shadow-btn: 0 12px 24px rgba(91, 108, 255, 0.28);
+  --shadow-btn-hover: 0 16px 28px rgba(91, 108, 255, 0.34);
+  --shadow-icon: 0 10px 24px rgba(27, 27, 47, 0.08);
+}
+
+/* ── Base ─────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--color-text);
+  background: var(--color-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Page background ──────────────────────────────────────────── */
+
+.page {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, #dfe6ff 0%, transparent 42%),
+    radial-gradient(circle at top right, #ffe3f1 0%, transparent 38%),
+    linear-gradient(180deg, #eef1ff 0%, #f7f8ff 100%);
+}
+
+.page-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% -10%, rgba(91, 108, 255, 0.18), transparent 45%);
+  pointer-events: none;
+}
+
+/* ── Themes ───────────────────────────────────────────────────── */
+
+.theme-little {
+  --color-bg: #fff5f8;
+  --color-bg-accent: #ffe8f0;
+  --color-accent: #ff6b9d;
+  --color-accent-strong: #e84d84;
+  --color-accent-soft: rgba(255, 107, 157, 0.14);
+  --shadow-card: 0 18px 50px rgba(232, 77, 132, 0.14);
+  --shadow-btn: 0 12px 24px rgba(255, 107, 157, 0.28);
+  --shadow-btn-hover: 0 16px 28px rgba(255, 107, 157, 0.34);
+}
+
+.page.theme-little {
+  background:
+    radial-gradient(circle at top left, #ffe0ec 0%, transparent 42%),
+    radial-gradient(circle at top right, #fff0d9 0%, transparent 38%),
+    linear-gradient(180deg, #fff5f8 0%, #fff9fb 100%);
+}
+
+.theme-primary {
+  --color-bg: #eef1ff;
+  --color-accent: #5b6cff;
+  --color-accent-strong: #3f4fe0;
+}
+
+.theme-early {
+  --color-bg: #f0f7ff;
+  --color-bg-accent: #e3f2fd;
+  --color-accent: #4a90d9;
+  --color-accent-strong: #1565c0;
+  --color-accent-soft: rgba(74, 144, 217, 0.14);
+  --shadow-card: 0 18px 50px rgba(21, 101, 192, 0.12);
+  --shadow-btn: 0 12px 24px rgba(74, 144, 217, 0.28);
+  --shadow-btn-hover: 0 16px 28px rgba(74, 144, 217, 0.34);
+}
+
+.page.theme-early {
+  background:
+    radial-gradient(circle at top left, #d6eaff 0%, transparent 42%),
+    radial-gradient(circle at top right, #e8f5e9 0%, transparent 38%),
+    linear-gradient(180deg, #f0f7ff 0%, #f5f9ff 100%);
+}
+
+.theme-teen {
+  --color-bg: #0f172a;
+  --color-bg-accent: #1e293b;
+  --color-surface: rgba(30, 41, 59, 0.88);
+  --color-surface-solid: #1e293b;
+  --color-text: #f8fafc;
+  --color-muted: #94a3b8;
+  --color-accent: #818cf8;
+  --color-accent-strong: #6366f1;
+  --color-accent-soft: rgba(129, 140, 248, 0.16);
+  --color-border: rgba(248, 250, 252, 0.1);
+  --shadow-card: 0 18px 50px rgba(15, 23, 42, 0.45);
+  --font-sans: "Inter", "Nunito", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.page.theme-teen {
+  background:
+    radial-gradient(circle at top left, rgba(99, 102, 241, 0.22) 0%, transparent 42%),
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.12) 0%, transparent 38%),
+    linear-gradient(180deg, #0f172a 0%, #111827 100%);
+}
+
+/* ── Per-child accent colours ─────────────────────────────────── */
+/* Applied as .accent-{color} on the .page element alongside .theme-{theme} */
+
+.page.accent-red {
+  --child-soft: rgba(229, 57, 53, 0.14);
+  --child-strong: #c62828;
+  --shadow-card: 0 18px 50px rgba(229, 57, 53, 0.14);
+  --child-gradient: linear-gradient(135deg, #ef5350, #e53935);
+  --child-btn-shadow: 0 12px 24px rgba(229, 57, 53, 0.28);
+  --child-btn-shadow-hover: 0 16px 28px rgba(229, 57, 53, 0.34);
+}
+
+.page.accent-green {
+  --child-soft: rgba(67, 160, 71, 0.14);
+  --child-strong: #2e7d32;
+  --shadow-card: 0 18px 50px rgba(67, 160, 71, 0.14);
+  --child-gradient: linear-gradient(135deg, #66bb6a, #43a047);
+  --child-btn-shadow: 0 12px 24px rgba(67, 160, 71, 0.28);
+  --child-btn-shadow-hover: 0 16px 28px rgba(67, 160, 71, 0.34);
+}
+
+.page.accent-blue {
+  --child-soft: rgba(91, 108, 255, 0.14);
+  --child-strong: #3f4fe0;
+  --shadow-card: 0 18px 50px rgba(63, 79, 224, 0.14);
+  --child-gradient: linear-gradient(135deg, #7380ff, #5b6cff);
+  --child-btn-shadow: 0 12px 24px rgba(91, 108, 255, 0.28);
+  --child-btn-shadow-hover: 0 16px 28px rgba(91, 108, 255, 0.34);
+}
+
+.page.accent-orange {
+  --child-soft: rgba(251, 140, 0, 0.14);
+  --child-strong: #ef6c00;
+  --shadow-card: 0 18px 50px rgba(251, 140, 0, 0.14);
+  --child-gradient: linear-gradient(135deg, #ffa726, #fb8c00);
+  --child-btn-shadow: 0 12px 24px rgba(251, 140, 0, 0.28);
+  --child-btn-shadow-hover: 0 16px 28px rgba(251, 140, 0, 0.34);
+}
+
+.page.accent-purple {
+  --child-soft: rgba(142, 36, 170, 0.14);
+  --child-strong: #7b1fa2;
+  --shadow-card: 0 18px 50px rgba(142, 36, 170, 0.14);
+  --child-gradient: linear-gradient(135deg, #ab47bc, #8e24aa);
+  --child-btn-shadow: 0 12px 24px rgba(142, 36, 170, 0.28);
+  --child-btn-shadow-hover: 0 16px 28px rgba(142, 36, 170, 0.34);
+}
+
+/* ── Utility classes that can't be expressed as Tailwind utilities ─ */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* App icon image fill */
+.app-icon-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ── Theme-specific component overrides ───────────────────────── */
+
+/* Profile icon / button gradient — default (no accent) */
+.profile-icon,
+.profile-button {
+  background: linear-gradient(135deg, #7380ff, #5b6cff);
+}
+
+.theme-little .profile-icon,
+.theme-little .profile-button {
+  background: linear-gradient(135deg, #ff8eb8, #ff6b9d);
+}
+
+.theme-early .profile-icon,
+.theme-early .profile-button {
+  background: linear-gradient(135deg, #64b5f6, #4a90d9);
+}
+
+.theme-teen .profile-icon,
+.theme-teen .profile-button {
+  background: linear-gradient(135deg, #818cf8, #6366f1);
+}
+
+/* Accent overrides for profile icon / button */
+.page.accent-red .profile-icon,
+.page.accent-green .profile-icon,
+.page.accent-blue .profile-icon,
+.page.accent-orange .profile-icon,
+.page.accent-purple .profile-icon,
+.page.accent-red .profile-button,
+.page.accent-green .profile-button,
+.page.accent-blue .profile-button,
+.page.accent-orange .profile-button,
+.page.accent-purple .profile-button {
+  background: var(--child-gradient);
+  box-shadow: var(--child-btn-shadow);
+}
+
+.page.accent-red .profile-button:hover,
+.page.accent-green .profile-button:hover,
+.page.accent-blue .profile-button:hover,
+.page.accent-orange .profile-button:hover,
+.page.accent-purple .profile-button:hover {
+  box-shadow: var(--child-btn-shadow-hover);
+}
+
+.page.accent-red .app-count,
+.page.accent-green .app-count,
+.page.accent-blue .app-count,
+.page.accent-orange .app-count,
+.page.accent-purple .app-count {
+  color: var(--child-strong);
+}
+
+/* Header badge uses child accent when set, falls back to theme accent */
+.header-badge {
+  background: var(--child-soft, var(--color-accent-soft));
+  color: var(--child-strong, var(--color-accent-strong));
+}
+
+/* App count default (no accent) */
+.app-count {
+  color: var(--color-accent-strong);
+}
+
+/* Theme-teen app count */
+.theme-teen .app-count {
+  background: var(--color-surface-solid);
+  color: var(--color-accent);
+}
+
+/* ── Responsive: app-list grid columns ────────────────────────── */
+/* These use CSS grid with minmax which is cleaner as plain CSS */
+
+.app-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem 0.75rem;
+  align-items: start;
+}
+
+@media (min-width: 768px) {
+  .app-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1.25rem 1rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-list {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1.5rem 1.25rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .app-list {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .app-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Large variant for "little" theme (bigger icons, fewer columns) */
+.app-list-large {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .theme-little .app-list-large {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 768px) {
+  .theme-little .app-list-large {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .theme-little .app-list-large .app-icon {
+    width: 8.5rem;
+    height: 8.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .theme-little .app-list-large {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .theme-little .app-list-large {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+/* ── Theme: little — larger icons & headers ───────────────────── */
+
+.theme-little .app-list-large .app-icon {
+  width: 7.5rem;
+  height: 7.5rem;
+  border-radius: 1.75rem;
+}
+
+.theme-little .header h1 {
+  font-size: clamp(2.5rem, 8vw, 3.5rem);
+}
+
+/* ── Theme: early — larger icons, text, counts ────────────────── */
+
+.theme-early .header h1 {
+  font-size: clamp(2.4rem, 7vw, 3.2rem);
+}
+
+.theme-early .app-name {
+  font-size: 0.95rem;
+  max-width: 8rem;
+}
+
+.theme-early .section-heading h2 {
+  font-size: 1.15rem;
+}
+
+.theme-early .app-count {
+  font-size: 1rem;
+  min-width: 2.25rem;
+  height: 2.25rem;
+}
+
+.theme-early .app-icon {
+  width: 6.5rem;
+  height: 6.5rem;
+  border-radius: 1.5rem;
+}
+
+.theme-early .subtitle {
+  font-size: 1.15rem;
+}
+
+/* ── Responsive: app icon sizes (default theme) ───────────────── */
+
+@media (min-width: 768px) {
+  .app-icon {
+    width: 6.25rem;
+    height: 6.25rem;
+    border-radius: 1.5rem;
+  }
+}
+
+/* ── Responsive: container widths ─────────────────────────────── */
+
+.container {
+  width: min(100%, 720px);
+}
+
+@media (min-width: 1024px) {
+  .container {
+    width: min(100%, 960px);
+  }
+}
+
+@media (min-width: 1280px) {
+  .container {
+    width: min(100%, 1080px);
+  }
+}
+
+/* ── Responsive: profile section on small screens ─────────────── */
+
+@media (max-width: 480px) {
+  .profile-section {
+    flex-direction: column;
+    gap: 0.75rem;
+    text-align: center;
+  }
+
+  .profile-copy {
+    text-align: center;
+  }
+
+  .profile-button {
+    width: 100%;
+    white-space: normal;
+  }
+}
+
+@media (min-width: 640px) {
+  .profile-section {
+    padding: 1.25rem 1.5rem;
+  }
+}
+
+/* ── Theme: little — container is flex column ─────────────────── */
+
+.theme-little .container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.theme-little .apps-section {
+  gap: 1.25rem;
+}
+
+.theme-little .profile-section {
+  margin-top: 0;
+}
+
+.theme-little .content-sections {
+  gap: 3.5rem;
+  margin-top: 2.5rem;
+}
+
+/* ── Birthday celebration ─────────────────────────────────────── */
+
+.birthday-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--child-gradient, var(--color-accent));
+  color: #fff;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+.birthday-banner {
+  position: relative;
+  overflow: hidden;
+  margin: 0 0 1.25rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--child-soft, var(--color-accent-soft));
+  text-align: center;
+}
+
+.birthday-headline {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--child-strong, var(--color-accent-strong));
+}
+
+.birthday-message {
+  margin: 0.35rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.just-unlocked .section-heading h2 {
+  color: var(--child-strong, var(--color-accent-strong));
+}
+
+.new-badge {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.1rem;
+  z-index: 1;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  background: var(--child-strong, var(--color-accent-strong));
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.birthday-confetti {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.birthday-confetti span {
+  position: absolute;
+  top: -1.5rem;
+  left: calc(4% + var(--i) * 6.6%);
+  width: 0.45rem;
+  height: 0.7rem;
+  border-radius: 1px;
+  background: var(--child-strong, var(--color-accent));
+  opacity: 0.7;
+  animation: confetti-fall 3.4s linear infinite;
+  animation-delay: calc(var(--i) * -0.22s);
+}
+
+.birthday-confetti span:nth-child(3n) {
+  background: var(--color-accent);
+  width: 0.35rem;
+  height: 0.55rem;
+}
+
+.birthday-confetti span:nth-child(4n) {
+  background: #f5c542;
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(42vh) rotate(220deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .birthday-confetti {
+    display: none;
+  }
+}

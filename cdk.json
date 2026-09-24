@@ -1,0 +1,11 @@
+{
+  "app": "npx tsx cdk/bin/app.ts",
+  "watch": {
+    "include": ["cdk/**", "scripts/**"],
+    "exclude": ["cdk.out", "dist", "node_modules"]
+  },
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true
+  }
+}
