@@ -179,6 +179,23 @@ export async function selectBudgetItem(
   return data;
 }
 
+export async function unselectBudgetItem(
+  budgetId: string,
+  productSlug: string,
+  selectedAt: string,
+  date?: string
+): Promise<{ removed: boolean; remaining_pence: number }> {
+  const response = await kidFetch(`/kid/budget/${budgetId}/unselect`, {
+    method: "POST",
+    body: JSON.stringify({ productSlug, selectedAt, date }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof data.error === "string" ? data.error : "Could not put that snack back");
+  }
+  return data;
+}
+
 export function formatPence(pence: number | null): string {
   if (pence === null) return "—";
   if (pence === 0) return "free";

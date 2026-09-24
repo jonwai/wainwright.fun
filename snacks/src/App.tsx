@@ -7,6 +7,7 @@ import {
   fetchBudgetState,
   pairDevice,
   selectBudgetItem,
+  unselectBudgetItem,
   formatPence,
   type BudgetHistoryDay,
   type BudgetProduct,
@@ -87,6 +88,50 @@ function CoinStack({ count, small = false }: { count: number; small?: boolean })
   );
 }
 
+/**
+ * The price a pick of this product is charged at, mirroring the server:
+ * half price when on/past use-by, then rounded up to whole 5p coins in
+ * count mode. Null when the shelf price is unknown.
+ */
+function chargedPricePence(product: BudgetProduct, countMode: boolean): number | null {
+  if (product.pricePence === null) return null;
+  const effective = product.halfPrice === true
+    ? Math.max(1, Math.round(product.pricePence / 2))
+    : product.pricePence;
+  return countMode ? Math.ceil(effective / 5) * 5 : effective;
+}
+
+/** Full-screen friendly message modal (used for pick errors). */
+function MessageModal({
+  message,
+  onClose,
+}: {
+  message: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6"
+      onClick={onClose}
+    >
+      <div
+        className="max-w-sm w-full p-8 bg-surface border border-border rounded-2xl text-center shadow-card"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="text-5xl mb-3">🐻</div>
+        <p className="text-lg font-bold mb-6">{message}</p>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center min-h-12 px-8 w-full rounded-md text-white text-base font-bold border-none cursor-pointer bg-accent transition-colors hover:bg-accent-strong"
+          onClick={onClose}
+        >
+          OK
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function friendlyDate(date: string): string {
   const today = todayLondon();
   if (date === today) return "Today";
@@ -120,6 +165,10 @@ export default function App() {
   const [pairing, setPairing] = useState(false);
   const [typedCode, setTypedCode] = useState("");
   const [pairMode, setPairMode] = useState<"home" | "scan" | "type">("home");
+  /** Pick errors show in a modal instead of the top-of-page banner. */
+  const [pickError, setPickError] = useState<string | null>(null);
+  /** Today's date (London) as loaded — used to detect day rollover. */
+  const [loadedDate, setLoadedDate] = useState<string>(todayLondon());
 
   const load = useCallback(async () => {
     try {
@@ -127,6 +176,7 @@ export default function App() {
       setState(next);
       setError(null);
       setUnpaired(false);
+      setLoadedDate(todayLondon());
       // Previous days not yet completed stay open — offer the latest one.
       if (budgetRemaining(next) > 0) setScreen("pick");
     } catch (err) {
@@ -141,6 +191,29 @@ export default function App() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Day rollover: when the London date changes while the app is open (or on
+  // focus after being parked overnight), reload everything so the child
+  // never sees yesterday's "all done" state on a fresh day.
+  useEffect(() => {
+    function checkNewDay() {
+      if (todayLondon() !== loadedDate) {
+        setProducts(null);
+        setHistory(null);
+        setJustPicked(null);
+        load();
+      }
+    }
+    checkNewDay();
+    // A short interval is enough (the check is a cheap string compare) and
+    // covers both the timer ticking past midnight and the iPad waking up.
+    const timer = setInterval(checkNewDay, 30_000);
+    window.addEventListener("focus", checkNewDay);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", checkNewDay);
+    };
+  }, [loadedDate, load]);
 
   // Errors auto-dismiss after 6s — long enough for a young reader, not sticky.
   useEffect(() => {
@@ -187,12 +260,36 @@ export default function App() {
         // Refresh first — load() clears the error state on success, which used
         // to wipe this message about a second after it appeared.
         await load();
-        setError(message);
+        setPickError(message);
       } finally {
         setBusySlug(null);
       }
     },
     [state, busySlug, load]
+  );
+
+  // Undo today's last pick by a child (refund). The API only allows
+  // unselecting selections made today by the child themselves.
+  const undoPick = useCallback(
+    async (selection: BudgetSelection) => {
+      if (busySlug) return;
+      setBusySlug(selection.productSlug);
+      setError(null);
+      try {
+        await unselectBudgetItem(BUDGET_ID, selection.productSlug, selection.selectedAt);
+        setJustPicked(null);
+        await load();
+        setProducts(null);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Could not put that snack back";
+        await load();
+        setPickError(message);
+      } finally {
+        setBusySlug(null);
+      }
+    },
+    [busySlug, load]
   );
 
   const done = state !== null && budgetRemaining(state) <= 0;
@@ -311,10 +408,31 @@ export default function App() {
 
   const remaining = state.remaining_pence;
   const coinsLeft = state.mode === "count" ? state.coins_remaining ?? 0 : null;
+  // Today's child-made picks, newest last — the last one is undoable.
+  const todaysSelections = state.selections.filter((s) => s.selectedBy === "child");
+  const lastPick = todaysSelections.length > 0 ? todaysSelections[todaysSelections.length - 1] : null;
+  // What a pick costs the child right now, in the mode's units (coins or pence).
+  const remainingUnits = countMode ? coinsLeft ?? 0 : remaining;
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="px-6 pt-8 pb-4 text-center">
+      <header className="px-6 pt-8 pb-4 text-center relative">
+        <button
+          type="button"
+          aria-label="Refresh"
+          title="Refresh"
+          className="absolute top-6 right-6 w-11 h-11 flex items-center justify-center rounded-full border border-border bg-surface text-muted cursor-pointer transition-colors hover:text-text"
+          onClick={() => {
+            setProducts(null);
+            setHistory(null);
+            load();
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
         <h1 className="text-3xl font-extrabold">🍪 My Snacks</h1>
         <p className="text-muted text-lg">
           {done
@@ -355,6 +473,16 @@ export default function App() {
       {justPicked && (
         <div className="mx-6 mb-4 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-center font-semibold pop-in">
           Yum! {justPicked.name} added to today 🎉
+          {lastPick && (
+            <button
+              type="button"
+              className="ml-3 px-4 py-1 rounded-full bg-white border border-green-200 text-green-700 text-sm font-bold cursor-pointer transition-colors hover:bg-green-50 disabled:opacity-50"
+              disabled={busySlug !== null}
+              onClick={() => undoPick(lastPick)}
+            >
+              ↩️ Undo
+            </button>
+          )}
         </div>
       )}
 
@@ -375,7 +503,37 @@ export default function App() {
               <div className="spinner" />
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-4">
+              {todaysSelections.length > 0 && (
+                <div className="bg-surface border border-border rounded-lg p-4 backdrop-blur-md">
+                  <h2 className="text-base font-extrabold mb-2">Picked today</h2>
+                  <ul className="flex flex-col gap-2">
+                    {[...todaysSelections].reverse().map((selection) => (
+                      <li key={selection.selectedAt} className="flex items-center gap-3">
+                        {selection.image ? (
+                          <img
+                            src={selection.image}
+                            alt=""
+                            className="w-9 h-9 rounded-md object-cover border border-border"
+                          />
+                        ) : (
+                          <span className="w-9 h-9 rounded-md bg-accent-soft flex items-center justify-center text-lg">🍪</span>
+                        )}
+                        <span className="font-semibold flex-1">{selection.name}</span>
+                        <button
+                          type="button"
+                          className="px-3 py-1 rounded-full border border-border bg-surface text-muted text-xs font-bold cursor-pointer transition-colors hover:text-text disabled:opacity-50"
+                          disabled={busySlug !== null}
+                          onClick={() => undoPick(selection)}
+                        >
+                          ↩ Put back
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4">
               {products.map((product) => (
                 <SnackCard
                   key={product.productSlug}
@@ -384,9 +542,15 @@ export default function App() {
                   soldOut={product.portionsLeft <= 0}
                   showPrice={!countMode}
                   countMode={countMode}
+                  tooExpensive={
+                    !done &&
+                    chargedPricePence(product, countMode) !== null &&
+                    chargedPricePence(product, countMode)! > state.remaining_pence
+                  }
                   onPick={() => pick(product)}
                 />
               ))}
+              </div>
             </div>
           )
         ) : history === null ? (
@@ -436,6 +600,8 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {pickError && <MessageModal message={pickError} onClose={() => setPickError(null)} />}
     </div>
   );
 }
@@ -469,6 +635,7 @@ function SnackCard({
   soldOut,
   showPrice,
   countMode,
+  tooExpensive,
   onPick,
 }: {
   product: BudgetProduct;
@@ -478,6 +645,9 @@ function SnackCard({
   showPrice: boolean;
   /** True in "count" mode — the card shows the item's coin value. */
   countMode: boolean;
+  /** True when the charged price exceeds the remaining balance — the card
+   *  is dimmed and crossed out and taps show a friendly modal. */
+  tooExpensive: boolean;
   onPick: () => void;
 }) {
   // Half price applies when the product is on or past its use-by date. The
@@ -495,13 +665,13 @@ function SnackCard({
     displayPrice === null ? null : Math.ceil(displayPrice / 5);
   return (
     <button
-      className={`text-left bg-surface border rounded-xl p-4 backdrop-blur-md shadow-card transition-transform cursor-pointer ${
-        soldOut
+      className={`relative text-left bg-surface border rounded-xl p-4 backdrop-blur-md shadow-card transition-transform ${
+        soldOut || tooExpensive
           ? "border-border opacity-50"
           : "border-border hover:-translate-y-1 hover:shadow-btn-hover active:translate-y-0"
-      }`}
-      onClick={soldOut ? undefined : onPick}
-      disabled={soldOut || busy}
+      } ${tooExpensive ? "cursor-not-allowed" : "cursor-pointer"}`}
+      onClick={soldOut || tooExpensive ? undefined : onPick}
+      disabled={soldOut || tooExpensive || busy}
     >
       <div className="relative flex items-center justify-center h-24 rounded-lg bg-accent-soft mb-3">
         {product.image ? (
@@ -512,6 +682,11 @@ function SnackCard({
         {halfPrice && (
           <span className="absolute -top-1 -right-1 rotate-6 bg-accent text-white text-[10px] font-extrabold tracking-wide px-2 py-0.5 rounded shadow-md">
             HALF PRICE
+          </span>
+        )}
+        {tooExpensive && (
+          <span className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
+            <span className="w-16 h-16 rounded-full border-4 border-red-400 bg-white/60 rotate-[-12deg]" />
           </span>
         )}
       </div>
@@ -531,6 +706,10 @@ function SnackCard({
       )}
       {soldOut ? (
         <p className="text-muted text-xs mt-2">All gone — pick another snack! 🐻</p>
+      ) : tooExpensive ? (
+        <p className="text-muted text-xs mt-2 font-semibold">
+          {countMode ? "Too many coins — pick another snack! 🪙" : "Too many pennies — pick another snack! 🪙"}
+        </p>
       ) : (
         <p className="text-muted text-xs mt-2">
           {product.portionsLeft} {product.portionLabel ?? "portion"}
