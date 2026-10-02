@@ -32,3 +32,6 @@ apps/twin/public/lights/
 
 # npm lockfile superseded by pnpm-lock.yaml
 package-lock.json
+
+# CDK lookup cache (holds account ids and zone ids; regenerate with cdk synth)
+**/cdk.context.json
