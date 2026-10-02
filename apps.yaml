@@ -403,7 +403,7 @@ children:
     date_of_birth: '2019-04-25'
     color: green
     locked: true
-    avatar: 🧚
+    avatar: 🐸
   - name: Zoe
     subdomain: zoe
     date_of_birth: '2020-09-12'

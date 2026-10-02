@@ -693,3 +693,110 @@ export async function createPreviewSession(
   if (!res.ok) throw new Error(`API returned ${res.status}`);
   return res.json();
 }
+
+// ── Chores app ─────────────────────────────────────────────────────
+
+export interface ChoreRoom {
+  room_id: string;
+  name: string;
+  floor: number;
+  carpeted: boolean;
+  area_m2: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ChoreFixture {
+  fixture_id: string;
+  room_id: string;
+  kind: string;
+  name: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ChoreWindow {
+  window_id: string;
+  room_id: string;
+  name: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ChoreSwitch {
+  switch_id: string;
+  room_id: string;
+  name: string;
+  battery_dead: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Chore {
+  chore_id: string;
+  title: string;
+  target_type: "room" | "fixture" | "window" | "switch";
+  target_id: string;
+  base_tickets: number;
+  cadence_days: number;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ChoreClaim {
+  child_subdomain: string;
+  chore_claim: string;
+  chore_id: string;
+  claimed_at: string;
+  task_id: string;
+  tickets: number;
+}
+
+export const getChoreRooms = (t: string) => apiGet<ChoreRoom[]>(t, "chores/rooms");
+export const putChoreRoom = (t: string, roomId: string, room: Partial<ChoreRoom>) =>
+  apiPut<ChoreRoom>(t, `chores/rooms/${encodeURIComponent(roomId)}`, room);
+export const deleteChoreRoom = (t: string, roomId: string) =>
+  apiDelete(t, `chores/rooms/${encodeURIComponent(roomId)}`);
+
+export const getChoreFixtures = (t: string) => apiGet<ChoreFixture[]>(t, "chores/fixtures");
+export const putChoreFixture = (t: string, fixtureId: string, fixture: Partial<ChoreFixture>) =>
+  apiPut<ChoreFixture>(t, `chores/fixtures/${encodeURIComponent(fixtureId)}`, fixture);
+export const deleteChoreFixture = (t: string, fixtureId: string) =>
+  apiDelete(t, `chores/fixtures/${encodeURIComponent(fixtureId)}`);
+
+export const getChoreWindows = (t: string) => apiGet<ChoreWindow[]>(t, "chores/windows");
+export const putChoreWindow = (t: string, windowId: string, win: Partial<ChoreWindow>) =>
+  apiPut<ChoreWindow>(t, `chores/windows/${encodeURIComponent(windowId)}`, win);
+export const deleteChoreWindow = (t: string, windowId: string) =>
+  apiDelete(t, `chores/windows/${encodeURIComponent(windowId)}`);
+
+export const getChoreSwitches = (t: string) => apiGet<ChoreSwitch[]>(t, "chores/switches");
+export const putChoreSwitch = (t: string, switchId: string, sw: Partial<ChoreSwitch>) =>
+  apiPut<ChoreSwitch>(t, `chores/switches/${encodeURIComponent(switchId)}`, sw);
+export const deleteChoreSwitch = (t: string, switchId: string) =>
+  apiDelete(t, `chores/switches/${encodeURIComponent(switchId)}`);
+
+export const getChores = (t: string) => apiGet<Chore[]>(t, "chores/chores");
+export const putChore = (t: string, choreId: string, chore: Partial<Chore>) =>
+  apiPut<Chore>(t, `chores/chores/${encodeURIComponent(choreId)}`, chore);
+export const deleteChore = (t: string, choreId: string) =>
+  apiDelete(t, `chores/chores/${encodeURIComponent(choreId)}`);
+
+export const getChoreClaims = (t: string) => apiGet<ChoreClaim[]>(t, "chores/claims");
+
+// ── Pairing sessions (admin) ────────────────────────────────────────
+
+export interface PairingRow {
+  code: string;
+  kind: "pair" | "preview";
+  child_subdomain: string;
+  /** Epoch seconds — when the row expires (DDB TTL). */
+  ttl: number;
+  /** Epoch seconds — when the code was minted. */
+  created_at?: number;
+}
+
+export const getPairings = (t: string) => apiGet<PairingRow[]>(t, "pairings");
+export const deletePairing = (t: string, code: string) =>
+  apiDelete(t, `pairings/${encodeURIComponent(code)}`);

@@ -17,6 +17,8 @@
     "dev:tickets": "vite --config tickets/vite.config.ts",
     "build:twin": "vite build --config twin/vite.config.ts",
     "dev:twin": "vite --config twin/vite.config.ts",
+    "build:chores": "vite build --config chores/vite.config.ts",
+    "dev:chores": "vite --config chores/vite.config.ts",
     "check-bundle-ids": "tsx scripts/check-bundle-ids.ts",
     "verify-min-age": "tsx scripts/verify-min-age.ts",
     "extract-system-icons": "tsx scripts/extract-system-icons.ts",

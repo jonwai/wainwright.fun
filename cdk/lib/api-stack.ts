@@ -230,6 +230,57 @@ export class ApiStack extends cdk.Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
     });
 
+    // ── Chores app tables ──────────────────────────────────────────
+    // The house (synced with the twin model) drives the chores: rooms,
+    // fixtures (furniture with jobs), windows and light switches/sensors.
+    // A claimed chore materialises a task row in wainwright-tasks so it
+    // appears in the Tickets app; completions flow through the shared
+    // completion log. See cdk/lambda/chores-routes.ts for the full model.
+    const choreRoomsTable = new dynamodb.Table(this, "ChoreRoomsTable", {
+      partitionKey: { name: "room_id", type: dynamodb.AttributeType.STRING },
+      tableName: "wainwright-chores-rooms",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    });
+
+    const choreFixturesTable = new dynamodb.Table(this, "ChoreFixturesTable", {
+      partitionKey: { name: "fixture_id", type: dynamodb.AttributeType.STRING },
+      tableName: "wainwright-chores-fixtures",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    });
+
+    const choreWindowsTable = new dynamodb.Table(this, "ChoreWindowsTable", {
+      partitionKey: { name: "window_id", type: dynamodb.AttributeType.STRING },
+      tableName: "wainwright-chores-windows",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    });
+
+    const choreSwitchesTable = new dynamodb.Table(this, "ChoreSwitchesTable", {
+      partitionKey: { name: "switch_id", type: dynamodb.AttributeType.STRING },
+      tableName: "wainwright-chores-switches",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    });
+
+    const choresTable = new dynamodb.Table(this, "ChoresTable", {
+      partitionKey: { name: "chore_id", type: dynamodb.AttributeType.STRING },
+      tableName: "wainwright-chores",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    });
+
+    // Chore claims: PK=child_subdomain, SK=`${chore_id}#${claimed_at}`.
+    // One item per claim, pointing at the materialised Tickets task row.
+    const choreClaimsTable = new dynamodb.Table(this, "ChoreClaimsTable", {
+      partitionKey: { name: "child_subdomain", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "chore_claim", type: dynamodb.AttributeType.STRING },
+      tableName: "wainwright-chore-claims",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    });
+
     // Wainsbury's integration token — mirrors the secret held in the shopping
     // account. After both stacks deploy, copy the token value across with
     // scripts/sync-snack-token.sh (the Lambda only ever sees the hash).
@@ -285,6 +336,12 @@ export class ApiStack extends cdk.Stack {
         REWARDS_TABLE: rewardsTable.tableName,
         REDEMPTIONS_TABLE: rewardRedemptionsTable.tableName,
         TERM_DATES_TABLE: termDatesTable.tableName,
+        CHORES_ROOMS_TABLE: choreRoomsTable.tableName,
+        CHORES_FIXTURES_TABLE: choreFixturesTable.tableName,
+        CHORES_WINDOWS_TABLE: choreWindowsTable.tableName,
+        CHORES_SWITCHES_TABLE: choreSwitchesTable.tableName,
+        CHORES_TABLE: choresTable.tableName,
+        CHORES_CLAIMS_TABLE: choreClaimsTable.tableName,
         WAINSBURYS_TOKEN_SECRET: wainsburysTokenSecret.secretArn,
         WAINSBURYS_API_URL: "https://api.wainsburys.co.uk",
         SIGNING_CERT_SECRET: signingCertSecret.secretArn,
@@ -312,6 +369,12 @@ export class ApiStack extends cdk.Stack {
     rewardsTable.grantReadWriteData(apiHandler);
     rewardRedemptionsTable.grantReadWriteData(apiHandler);
     termDatesTable.grantReadWriteData(apiHandler);
+    choreRoomsTable.grantReadWriteData(apiHandler);
+    choreFixturesTable.grantReadWriteData(apiHandler);
+    choreWindowsTable.grantReadWriteData(apiHandler);
+    choreSwitchesTable.grantReadWriteData(apiHandler);
+    choresTable.grantReadWriteData(apiHandler);
+    choreClaimsTable.grantReadWriteData(apiHandler);
     wainsburysTokenSecret.grantRead(apiHandler);
     signingCertSecret.grantRead(apiHandler);
     signingKeySecret.grantRead(apiHandler);
@@ -407,11 +470,13 @@ export class ApiStack extends cdk.Stack {
           `https://snacks.${domainName}`,
           `https://tickets.${domainName}`,
           `https://twin.${domainName}`,
+          `https://chores.${domainName}`,
           "http://localhost:5173",
           "http://localhost:5174",
           "http://localhost:5175",
           "http://localhost:5176",
           "http://localhost:5177",
+          "http://localhost:5178",
         ],
         allowMethods: [
           apigw.CorsHttpMethod.GET,
