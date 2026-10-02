@@ -1,0 +1,19 @@
+{
+  "name": "@wainwright/twin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "3D home twin SPA \u2014 twin.wainwright.fun",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "vite": "^6.0.5"
+  }
+}

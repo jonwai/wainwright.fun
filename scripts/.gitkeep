@@ -1,0 +1,11 @@
+Empty on purpose. This directory used to hold every script in the repo; they now
+live next to the package that owns them:
+
+  apps/kids/scripts/        kids-site build + the Vite apps-config dev plugin
+  packages/shared/scripts/  shared domain logic (config, resolve, icons, yaml-generator, …)
+  packages/infra/scripts/   Lambda deploy scripts, seeds, migrations, verifiers
+  tools/                    repo-level entry points (deploy.sh, dev-admin.sh), route tests,
+                            cross-app icon generators
+
+Keeping this directory means `npx tsx scripts/whatever.ts` still resolves under
+pnpm's node_modules layout, where the repo root itself is also a package.

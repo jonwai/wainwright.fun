@@ -1,0 +1,9 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm 8 does not read the `packageManager` field, so pin the store layout and
+# hoisting behaviour here as well. These are the defaults, stated explicitly so
+# the repo behaves the same on any machine.
+nodeLinker: isolated
+shamefullyHoist: false

@@ -12,23 +12,50 @@ Each child is paired to an iPad with a QR code from the admin site. After pairin
 4. **Configuration profile** — an `.mobileconfig` per child that restricts the iPad to their allowed apps. Safari is limited to `wainwright.fun`, `api.wainwright.fun`, and their allowed websites.
 5. **On-iPad personalisation** — a paired iPad can pick its own avatar. That writes through the kid API; it is not world-readable.
 
+## Repository layout
+
+This is a pnpm workspace (monorepo). Everything below the root is a package.
+
+```
+pnpm-workspace.yaml      ← workspace globs: apps/*, packages/*
+package.json             ← root scripts (the entry point for every workflow)
+apps/
+  kids/                  ← kids SPA (pairing, avatar, apps)  → wainwright.fun
+  admin/                 ← parent admin (Cognito)            → admin.wainwright.fun
+  snacks/                ← snack-budget SPA                  → snacks.wainwright.fun
+  tickets/               ← reward-tickets SPA                → tickets.wainwright.fun
+  chores/                ← chores SPA                        → chores.wainwright.fun
+  twin/                  ← 3D home twin SPA                  → twin.wainwright.fun
+packages/
+  shared/                ← config/resolve/profile logic + apps.yaml
+  infra/                 ← CDK stacks, Lambda handlers, ops scripts
+tools/                   ← deploy, dev wrappers, icon generators, route tests
+public/                  ← icons fetched from S3 into apps/kids/public/
+scripts/                 ← empty; see the README in that directory
+certificates/            ← profile signing cert (gitignored)
+```
+
+Each `apps/*` and `packages/*` directory has its own `package.json` with only the
+dependencies it actually uses, and its own `tsconfig.json`.
+
 ## Quick start
 
 ### Prerequisites
 
 - Node.js 20+
+- pnpm 8+ (`packageManager` in the root `package.json` pins the expected version)
 - AWS CLI configured (`aws configure`) — only needed for deploy
 - AWS CDK bootstrapped in your account (`npx cdk bootstrap`) — only needed for deploy
 
 ### Install
 
 ```bash
-npm install
+pnpm install
 ```
 
 ### Configure children and apps
 
-Edit [`apps.yaml`](apps.yaml):
+Edit [`apps.yaml`](packages/shared/apps.yaml):
 
 **Children** — one entry per child with `name`, `subdomain` (stable ID), and `date_of_birth`:
 
@@ -65,25 +92,25 @@ Each app needs `name`, `bundle_id`, and `app_store_url`. Optional `category` (us
 Verify bundle IDs before deploy:
 
 ```bash
-npm run check-bundle-ids
+pnpm run check-bundle-ids
 ```
 
-App and website icons are fetched automatically on build/dev into `public/app-icons/` and `public/website-icons/`. The App Store built-in app has no iTunes listing — its icon lives in `public/system-icons/app-store.png`. Re-extract it from macOS after an OS update with:
+App and website icons are fetched automatically on build/dev into `apps/kids/public/app-icons/` and `apps/kids/public/website-icons/`. The App Store built-in app has no iTunes listing — its icon lives in `apps/kids/public/system-icons/app-store.png`. Re-extract it from macOS after an OS update with:
 
 ```bash
-npm run extract-system-icons
+pnpm run extract-system-icons
 ```
 
 ## Local development
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 Kids site: `http://localhost:5173` (pairing screen unless the iPad is already paired against the API).
 
 ```bash
-npm run dev:admin
+pnpm run dev:admin
 ```
 
 Admin: `http://localhost:5174`. Cognito callback URLs include localhost.
@@ -91,7 +118,7 @@ Admin: `http://localhost:5174`. Cognito callback URLs include localhost.
 Optional yaml-backed preview without pairing:
 
 ```bash
-VITE_CHILD=hannah npm run dev
+VITE_CHILD=hannah pnpm run dev
 ```
 
 ### Test on an iPad on your home network
@@ -101,14 +128,21 @@ Use the Network URL Vite prints (e.g. `http://192.168.1.42:5173`). Pairing talks
 ### Test the production build locally
 
 ```bash
-npm run build
-npm run preview
+pnpm run build
+pnpm run preview
+```
+
+### Typecheck
+
+```bash
+pnpm run typecheck          # kids + shared + tools
+pnpm run typecheck:infra    # CDK stacks and Lambda handlers
 ```
 
 ## Deploy to AWS
 
 ```bash
-npm run deploy
+pnpm run deploy
 ```
 
 CloudFront certificates must be in **us-east-1**:
@@ -116,13 +150,13 @@ CloudFront certificates must be in **us-east-1**:
 ```bash
 export CDK_DEFAULT_REGION=us-east-1
 
-npm run deploy -- \
+pnpm run deploy -- \
   -c domainName=wainwright.fun \
   -c hostedZoneId=Z0123456789ABCDEF \
   -c hostedZoneName=wainwright.fun
 ```
 
-Copy [`cdk.context.example.json`](cdk.context.example.json) to `cdk.context.json` with your values.
+Copy [`cdk.context.example.json`](packages/infra/cdk.context.example.json) to `cdk.context.json` with your values.
 
 CDK creates a wildcard ACM certificate (`*.wainwright.fun`), a CloudFront distribution with host routing, and a Route 53 wildcard A record.
 
@@ -137,16 +171,6 @@ Each child is paired from admin. Former child subdomains (`hannah.wainwright.fun
 5. Re-install the profile whenever you add or remove apps.
 
 Public profiles are locked by default (kids cannot remove them). To uninstall as a parent: in admin → Children, turn off **Locked** for that child → open the paired site and install the updated profile → remove it in Settings → turn **Locked** back on → reinstall the locked profile.
-
-## Project structure
-
-```
-apps.yaml                    ← children, apps, websites, theme bands (generated from DynamoDB)
-src/                         ← kids SPA (pairing, avatar, apps)
-admin/                       ← parent admin (Cognito)
-cdk/lambda/kid-routes.ts     ← pairing + kid API
-cdk/lib/kids-apps-stack.ts   ← S3, CloudFront, DNS
-```
 
 ## How restrictions work
 

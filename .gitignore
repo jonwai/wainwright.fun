@@ -1,6 +1,11 @@
 node_modules/
+
+# build output (per-package dist/, plus cdk synth output)
 dist/
+**/dist/
 cdk.out/
+**/cdk.out/
+.cdk.staging/
 certificates/
 
 # macOS
@@ -21,6 +26,9 @@ certificates/
 npm-debug.log*
 
 # twin: runtime assets synced from ~/Documents/home-twin (scripts/sync-twin-assets.ts)
-twin/public/model/
-twin/public/furniture/
-twin/public/lights/
+apps/twin/public/model/
+apps/twin/public/furniture/
+apps/twin/public/lights/
+
+# npm lockfile superseded by pnpm-lock.yaml
+package-lock.json

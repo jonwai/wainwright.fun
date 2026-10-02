@@ -1,0 +1,20 @@
+{
+  "app": "npx tsx bin/app.ts",
+  "watch": {
+    "include": [
+      "bin/**",
+      "lib/**",
+      "lambda/**",
+      "scripts/**"
+    ],
+    "exclude": [
+      "cdk.out",
+      "node_modules"
+    ]
+  },
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true
+  },
+  "output": "cdk.out"
+}
