@@ -17,7 +17,6 @@ const adminOrigin = `https://admin.${domainName}`;
  * nothing else. Keep them in step with the Lakitu stack's `-c dnsRoleArn`.
  */
 const gatewayAccount = "967281205009";
-const gatewayDeployRoleName = "cdk-hnb659fds-deploy-role-967281205009-us-east-1";
 
 const account = "926274062211";
 const region = "us-east-1"; // CloudFront + ACM certs require us-east-1
@@ -60,5 +59,4 @@ new GatewayDnsStack(app, "GatewayDnsStack", {
   env: { account, region },
   domainName,
   gatewayAccount,
-  deployRoleName: gatewayDeployRoleName,
 });

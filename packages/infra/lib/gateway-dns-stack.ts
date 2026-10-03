@@ -23,21 +23,24 @@ import { Construct } from "constructs";
  *  - it **creates a role** that the `wainwrightfun` account may assume to change records in this
  *    one zone, and only this one zone.
  *
- * The Lakitu stack then deploys entirely from `wainwrightfun`: it assumes this role, writes both
- * records (the alias and the certificate validation), and reads the Lightsail certificate's
- * status. This stack is deployed once, with the `email` profile, and rarely after that.
+ * The Lakitu stack then deploys entirely from `wainwrightfun`: it assumes this role and writes the
+ * A record for the gateway hostname. (An instance gets its own TLS certificate over the ACME HTTP
+ * challenge, so unlike the container-service design this no longer needs a validation record.)
+ * This stack is deployed once, with the `email` profile, and rarely after that.
  *
- * The role's trust is narrowed to a single named role in the other account rather than the whole
- * account, so nothing else in `wainwrightfun` can edit DNS. Change `gatewayAccount` and
- * `deployRoleName` together with the Lakitu stack's `dnsRoleArn` if either moves.
+ * The trust is the gateway **account**, not one named role in it. That is deliberate, and was
+ * forced by how it is actually used: the principal that assumes this role is not the CDK deploy
+ * role but a Lambda *service* role inside the gateway account (`LakituLiteLlm-DnsWriter...`),
+ * which a named-role trust does not match. Naming the Lambda's role instead would break the next
+ * time the stack is rebuilt with a new logical id. `sts:AssumeRole` from the account is also not
+ * transitive: a principal in that account still needs its own `sts:AssumeRole` permission, which
+ * only the stack grants to that one Lambda. Everything in the account is the same operator.
  */
 export interface GatewayDnsStackProps extends cdk.StackProps {
   /** The domain this zone serves. */
   readonly domainName: string;
   /** The account that runs the gateway and deploys the Lakitu stack. */
   readonly gatewayAccount: string;
-  /** The role name that stack deploys under; the only principal trusted to edit this zone. */
-  readonly deployRoleName: string;
 }
 
 export class GatewayDnsStack extends cdk.Stack {
@@ -46,7 +49,7 @@ export class GatewayDnsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: GatewayDnsStackProps) {
     super(scope, id, props);
 
-    const { domainName, gatewayAccount, deployRoleName } = props;
+    const { domainName, gatewayAccount } = props;
 
     // The zone already exists (created by KidsAppsStack). Look it up rather than create a second
     // one: two hosted zones for the same name would split the records and serve neither.
@@ -58,14 +61,11 @@ export class GatewayDnsStack extends cdk.Stack {
 
     // ── The cross-account role ─────────────────────────────────────
     // Scoped to record changes in this zone. `ChangeResourceRecordSets` is not resource-scopable
-    // below the zone, so a principal with this role can change any record here — which is why the
-    // trust is a named role in the gateway account and not the account itself.
+    // below the zone, so a principal with this role can change any record here.
     const dnsRole = new iam.Role(this, "DnsWriterRole", {
       roleName: "lakitu-gateway-dns-writer",
       description: `Lets the Lakitu gateway account write DNS records in ${domainName}`,
-      assumedBy: new iam.ArnPrincipal(
-        `arn:aws:iam::${gatewayAccount}:role/${deployRoleName}`,
-      ),
+      assumedBy: new iam.AccountPrincipal(gatewayAccount),
       maxSessionDuration: cdk.Duration.hours(1),
     });
 
