@@ -29,6 +29,8 @@ export class AuthStack extends cdk.Stack {
     const { hostedZone, certificate, domainName, authDomain, adminOrigin } =
       props;
     const snacksAdminOrigin = `https://admin.snacks.${domainName}`;
+    const kitchenAdminOrigin = `https://admin.kitchen.${domainName}`;
+    const householdAdminOrigin = `https://admin.household.${domainName}`;
 
     // ── Cognito User Pool ──────────────────────────────────────────
     this.userPool = new cognito.UserPool(this, "UserPool", {
@@ -76,12 +78,20 @@ export class AuthStack extends cdk.Stack {
           `${adminOrigin}/auth/callback`,
           `${snacksAdminOrigin}/`,
           `${snacksAdminOrigin}/auth/callback`,
+          `${kitchenAdminOrigin}/`,
+          `${kitchenAdminOrigin}/auth/callback`,
+          `${householdAdminOrigin}/`,
+          `${householdAdminOrigin}/auth/callback`,
           "http://localhost:5174/",
           "http://localhost:5174/auth/callback",
         ],
         logoutUrls: [
           `${adminOrigin}/`,
           `${snacksAdminOrigin}/`,
+          `${kitchenAdminOrigin}/`,
+          `${kitchenAdminOrigin}/auth/callback`,
+          `${householdAdminOrigin}/`,
+          `${householdAdminOrigin}/auth/callback`,
           "http://localhost:5174/",
         ],
       },
