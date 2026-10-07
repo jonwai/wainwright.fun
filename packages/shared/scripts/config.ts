@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import yaml from "js-yaml";
 import type { ResolvedChildConfig } from "./resolve.js";
 import { filterNonDefault } from "../restriction-catalog.js";
@@ -184,7 +184,7 @@ function generateAppRestrictionsPayload(
   allBundleIds: string[],
   restrictions: Restriction[]
 ): string {
-  const payloadUuid = randomUUID().toUpperCase();
+  const payloadUuid = stableUuid(`${config.profile.identifier}|restrictions`);
   const payloadIdentifier = `${config.profile.identifier}.restrictions`;
 
   const bundleIdEntries = allBundleIds
@@ -219,7 +219,7 @@ function generateWebFilterPayload(config: ResolvedChildConfig): string | null {
     return null;
   }
 
-  const payloadUuid = randomUUID().toUpperCase();
+  const payloadUuid = stableUuid(`${config.profile.identifier}|webfilter`);
   const payloadIdentifier = `${config.profile.identifier}.webfilter`;
 
   const bookmarkEntries = config.websites
@@ -259,6 +259,13 @@ ${bookmarkEntries}
 
 const WEB_CLIP_BUNDLE_ID = "com.apple.webapp";
 
+/**
+ * UUID-shaped SHA-1 of `seed`. PayloadUUIDs must stay stable for a profile
+ * identity: a new UUID makes iOS recreate that payload, and a recreated
+ * Web Clip drops its localStorage (including `wfk_device_token`).
+ * Web Clip seeds stay `${identifier}|webclip|${url}` so already-installed
+ * clips keep the same UUID.
+ */
 function stableUuid(seed: string): string {
   const hex = createHash("sha1").update(seed).digest("hex");
   return [
@@ -379,7 +386,7 @@ export function generateProfile(
     allBundleIds.push(WEB_CLIP_BUNDLE_ID);
   }
 
-  const profileUuid = randomUUID().toUpperCase();
+  const profileUuid = stableUuid(`${config.profile.identifier}|root`);
   const payloads = [
     generateAppRestrictionsPayload(config, allBundleIds, effectiveRestrictions),
     generateWebFilterPayload(config),

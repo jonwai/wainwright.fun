@@ -168,7 +168,7 @@ Each child is paired from admin. Former child subdomains (`hannah.wainwright.fun
 2. On the iPad, open `https://wainwright.fun` and scan the code (or type it).
 3. Add to Home Screen for a PWA-style shortcut.
 4. Tap **Install iPad Profile** and follow the prompts in Settings.
-5. Re-install the profile whenever you add or remove apps.
+5. Whenever you add or remove apps, install the updated profile over the one already on the iPad. Do not delete the old profile first.
 
 Public profiles are locked by default (kids cannot remove them). To uninstall as a parent: in admin → Children, turn off **Locked** for that child → open the paired site and install the updated profile → remove it in Settings → turn **Locked** back on → reinstall the locked profile.
 

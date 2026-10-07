@@ -50,7 +50,7 @@ export function DeployPanel({ accessToken }: { accessToken: string }) {
         </p>
         <p className="text-muted text-sm leading-relaxed mt-3">
           iPad restriction profiles are generated when a child taps <strong className="text-text">Install iPad Profile</strong>.
-          Reinstall the profile after you add or remove apps. Pair an iPad from the Children tab.
+          After you add or remove apps, install the new profile as an update — do not delete the old profile first. Pair an iPad from the Children tab.
         </p>
       </div>
     </div>
