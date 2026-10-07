@@ -70,6 +70,13 @@ new GatewayDnsStack(app, "GatewayDnsStack", {
 new LocalAcmeDnsStack(app, "LocalAcmeDnsStack", {
   env: { account, region },
   domainName,
-  certificateNames: ["snacks.wainwright.fun", "admin.snacks.wainwright.fun"],
+  certificateNames: [
+    "snacks.wainwright.fun",
+    "admin.snacks.wainwright.fun",
+    "kitchen.wainwright.fun",
+    "admin.kitchen.wainwright.fun",
+    "household.wainwright.fun",
+    "admin.household.wainwright.fun",
+  ],
   userName: "wainwright-fun-local-acme",
 });
