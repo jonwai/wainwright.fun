@@ -3,6 +3,7 @@ import { KidsAppsStack } from "../lib/kids-apps-stack.js";
 import { AuthStack } from "../lib/auth-stack.js";
 import { ApiStack } from "../lib/api-stack.js";
 import { GatewayDnsStack } from "../lib/gateway-dns-stack.js";
+import { LocalAcmeDnsStack } from "../lib/local-acme-dns-stack.js";
 
 const app = new cdk.App();
 
@@ -59,4 +60,16 @@ new GatewayDnsStack(app, "GatewayDnsStack", {
   env: { account, region },
   domainName,
   gatewayAccount,
+});
+
+/**
+ * Certificates for apps served from the home Mac Studio (Caddy, ACME DNS-01). One IAM user that
+ * may write only the `_acme-challenge` TXT records for these hostnames. Deploy with the `email`
+ * profile; the access key is created separately into the Mac's `wainwright-fun-acme` profile.
+ */
+new LocalAcmeDnsStack(app, "LocalAcmeDnsStack", {
+  env: { account, region },
+  domainName,
+  certificateNames: ["snacks.wainwright.fun", "admin.snacks.wainwright.fun"],
+  userName: "wainwright-fun-local-acme",
 });
