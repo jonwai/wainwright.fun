@@ -28,7 +28,8 @@ const CORE = `
   CREATE TABLE core.people (id text PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9-]*$'), display_name text NOT NULL, role text NOT NULL CHECK (role IN ('child', 'parent')),
     sort_order int NOT NULL DEFAULT 0, date_of_birth date, color text CHECK (color IN ('red', 'green', 'blue', 'orange', 'purple')),
     avatar text CHECK (avatar <> ''), UNIQUE (id, role));
-  CREATE TABLE core.devices (ip inet PRIMARY KEY, mac macaddr, person_id text NOT NULL REFERENCES core.people ON UPDATE CASCADE ON DELETE CASCADE, label text);
+  CREATE TABLE core.devices (ip inet PRIMARY KEY, mac macaddr, person_id text NOT NULL REFERENCES core.people ON UPDATE CASCADE ON DELETE CASCADE, label text,
+    created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
   CREATE TABLE core.term_dates (academic_year text NOT NULL, position int NOT NULL, name text NOT NULL, opens date NOT NULL, closes date NOT NULL,
     half_term_start date, half_term_end date, PRIMARY KEY (academic_year, position));
   INSERT INTO core.people VALUES
@@ -366,6 +367,70 @@ test("term dates read from core, written only in Snacks; retired routes say so",
   const config = await admin("/api/config", MAC);
   assert.equal(config.status, 200);
   assert.match(config.text, /com\.example\.maths/);
+});
+
+test("a parent manages devices on the admin; a child and an unknown device cannot", { skip: !url }, async () => {
+  const list = await admin("/api/admin/devices", MAC);
+  assert.equal(list.status, 200);
+  assert.deepEqual(
+    list.json.map((d: { ip: string }) => d.ip),
+    ["192.168.1.170", "192.168.1.182", "192.168.1.219", "192.168.1.98"],
+  );
+  assert.deepEqual(list.json.find((d: { ip: string }) => d.ip === MAC), { ip: MAC, mac: null, personId: "jonathan", label: "Mac Studio" });
+
+  const people = await admin("/api/admin/people", MAC);
+  assert.equal(people.status, 200);
+  assert.ok(people.json.some((p: { id: string; role: string }) => p.id === "jonathan" && p.role === "parent"));
+  assert.ok(people.json.some((p: { id: string; role: string }) => p.id === "ethan" && p.role === "child"));
+
+  const kid = await admin("/api/admin/devices", ZOE);
+  assert.equal(kid.status, 403);
+  assert.equal(kid.json.notSetUp, undefined);
+  assert.equal((await admin("/api/admin/devices", ZOE, { method: "PUT", body: { ip: "192.168.1.50", personId: "ethan" } })).status, 403);
+  assert.equal((await admin("/api/admin/devices?ip=192.168.1.98", ZOE, { method: "DELETE" })).status, 403);
+
+  const unknown = await admin("/api/admin/devices", STRANGER);
+  assert.equal(unknown.status, 403);
+  assert.deepEqual(unknown.json, { error: "This device isn't set up", notSetUp: true });
+  const unknownPut = await admin("/api/admin/devices", null, { method: "PUT", body: { ip: "192.168.1.50", personId: "ethan" } });
+  assert.deepEqual(unknownPut.json, { error: "This device isn't set up", notSetUp: true });
+
+  assert.equal((await admin("/api/admin/devices", MAC, { method: "PUT", body: { ip: "192.168.1.999", personId: "ethan" } })).json.error, "ip must be an IPv4 address");
+  assert.equal((await admin("/api/admin/devices", MAC, { method: "PUT", body: { ip: "2001:db8::1", personId: "ethan" } })).status, 400);
+  assert.equal((await admin("/api/admin/devices", MAC, { method: "PUT", body: { personId: "ethan" } })).status, 400);
+  assert.match((await admin("/api/admin/devices", MAC, { method: "PUT", body: { ip: "192.168.1.50", personId: "nobody" } })).json.error, /Unknown person/);
+  assert.equal((await admin("/api/admin/devices", MAC, { method: "PUT", body: { ip: "192.168.1.50", personId: "ethan", mac: "not-a-mac" } })).json.error, "mac must be a MAC address");
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM core.devices WHERE ip = '192.168.1.50'")).rows[0].n, 0, "rejected puts write nothing");
+
+  const put = await admin("/api/admin/devices", MAC, {
+    method: "PUT",
+    body: { ip: "192.168.1.50", personId: " ethan ", label: " Ethan iPad ", mac: "AA:BB:CC:DD:EE:FF" },
+  });
+  assert.equal(put.status, 200);
+  assert.deepEqual(put.json, { ip: "192.168.1.50", mac: "aa:bb:cc:dd:ee:ff", personId: "ethan", label: "Ethan iPad" });
+  const again = await admin("/api/admin/devices", MAC, { method: "PUT", body: { ip: "192.168.1.50", personId: "joanna", label: "Joanna iPad" } });
+  assert.equal(again.status, 200);
+  assert.equal(again.json.personId, "joanna");
+  assert.equal(again.json.mac, null, "an omitted mac is cleared");
+  assert.equal(again.json.label, "Joanna iPad");
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM core.devices WHERE ip = '192.168.1.50'")).rows[0].n, 1, "upsert does not duplicate");
+
+  const relabel = await admin("/api/admin/devices", MAC, { method: "PUT", body: { ip: MAC, personId: "jonathan", label: "Studio", mac: "00:11:22:33:44:55" } });
+  assert.equal(relabel.status, 200);
+  const keep = await admin(`/api/admin/devices?ip=${encodeURIComponent(MAC)}`, MAC, { method: "DELETE" });
+  assert.equal(keep.status, 409);
+  assert.match(keep.json.error, /device you're using/);
+  assert.equal((await pool.query("SELECT label FROM core.devices WHERE ip = '192.168.1.170'")).rows[0].label, "Studio");
+
+  assert.equal((await admin("/api/admin/devices", MAC, { method: "DELETE" })).json.error, "ip is required");
+  assert.equal((await admin("/api/admin/devices?ip=192.168.1.50", MAC, { method: "DELETE" })).status, 200);
+  assert.equal((await admin("/api/admin/devices?ip=192.168.1.50", MAC, { method: "DELETE" })).status, 404);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM core.devices WHERE ip = '192.168.1.50'")).rows[0].n, 0);
+  assert.equal((await admin("/api/admin/devices", MAC, { method: "POST" })).status, 405);
+  assert.equal((await admin("/api/admin/people", MAC, { method: "DELETE" })).status, 405);
+
+  // Put the parent's device back how the other tests expect it.
+  await admin("/api/admin/devices", MAC, { method: "PUT", body: { ip: MAC, personId: "jonathan", label: "Mac Studio" } });
 });
 
 test("hosted redirects are kept: www to the apex, the apex admin paths to admin", { skip: !url }, async () => {

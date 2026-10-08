@@ -2,22 +2,31 @@
  * The iPad config admin on the home network (admin.wainwright.fun, served by packages/local).
  * The hosted admin's panels without Cognito: the server only answers a parent's device (by IP
  * address), so the "token" is a placeholder it ignores. Pairing, Snacks, Chores and Deploy are not
- * here: devices are recognised by IP, Snacks and Tickets each have their own app
- * (snacks.wainwright.fun, tickets.wainwright.fun), chores stay on chores.wainwright.fun,
- * and nothing is deployed.
+ * here. Devices are managed on the Devices tab (core.devices, recognised by IP). Snacks and Tickets
+ * each have their own app (snacks.wainwright.fun, tickets.wainwright.fun), chores stay on
+ * chores.wainwright.fun, and nothing is deployed.
  */
 import { StrictMode, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
+import { DevicesPanel } from "./DevicesPanel";
 import { ChildrenPanel, AppsPanel, SystemAppsPanel, WebsitesPanel, ThemesPanel, RestrictionsPanel } from "./TablePanels";
 import { TermDatesPanel } from "./TermDatesPanel";
 import { TABS, tabToPath, useRoute, type Tab } from "./useRoute";
 import "./index.css";
 
-const LOCAL_TABS: Tab[] = ["children", "apps", "system-apps", "websites", "themes", "restrictions", "term-dates"];
+const LOCAL_TABS: Tab[] = ["children", "devices", "apps", "system-apps", "websites", "themes", "restrictions", "term-dates"];
+/** "devices" is local-only, so it is not in the hosted admin's TABS list. */
+const LOCAL_ROUTE_EXTRAS = ["devices"];
+const LOCAL_NAV: { id: Tab; label: string }[] = (() => {
+  const items = TABS.filter((t) => LOCAL_TABS.includes(t.id));
+  const at = items.findIndex((t) => t.id === "children");
+  items.splice(at + 1, 0, { id: "devices", label: "Devices" });
+  return items;
+})();
 const TOKEN = "home-network";
 
 function LocalAdmin() {
-  const { tab: routed, navigate } = useRoute();
+  const { tab: routed, navigate } = useRoute(LOCAL_ROUTE_EXTRAS);
   const tab = LOCAL_TABS.includes(routed) ? routed : "children";
   const navRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -33,7 +42,7 @@ function LocalAdmin() {
         </a>
       </header>
       <nav className="flex overflow-x-auto no-scrollbar px-4 sm:px-8 bg-surface border-b border-border backdrop-blur-md" ref={navRef}>
-        {TABS.filter((t) => LOCAL_TABS.includes(t.id)).map((t) => (
+        {LOCAL_NAV.map((t) => (
           <a
             key={t.id}
             href={tabToPath(t.id)}
@@ -53,6 +62,7 @@ function LocalAdmin() {
       </nav>
       <main className="flex-1 p-4 sm:p-8 max-w-5xl mx-auto w-full">
         {tab === "children" && <ChildrenPanel accessToken={TOKEN} includeSnacks={false} includePairing={false} />}
+        {tab === "devices" && <DevicesPanel accessToken={TOKEN} />}
         {tab === "apps" && <AppsPanel accessToken={TOKEN} />}
         {tab === "system-apps" && <SystemAppsPanel accessToken={TOKEN} />}
         {tab === "websites" && <WebsitesPanel accessToken={TOKEN} />}

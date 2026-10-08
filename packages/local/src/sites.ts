@@ -4,8 +4,9 @@
  *
  *   wainwright.fun        the kids' launcher; the child is the device's IP (core.devices), a parent
  *                         may pick a child to look at. /kid/config, /kid/avatar, /kid/profile.
- *   admin.wainwright.fun  the iPad config admin (children, apps, websites, themes, restrictions,
- *                         term dates). Parents' devices only; never a child's device.
+ *   admin.wainwright.fun  the iPad config admin (children, devices, apps, websites, themes,
+ *                         restrictions, term dates). Parents' devices only; never a child's device.
+ *                         Devices are managed here (core.devices), not in Snacks.
  *   www.wainwright.fun    301 to wainwright.fun (as the hosted CloudFront function).
  *   anything else         tickets (tickets.wainwright.fun, health checks).
  *
@@ -13,12 +14,13 @@
  */
 import { readdir } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { isIP } from "node:net";
 import path from "node:path";
 import yaml from "js-yaml";
 import type pg from "pg";
 import { buildRootConfig, type DbApp, type DbChild, type DbRestriction, type DbTheme, type DbWebsite } from "../../shared/scripts/yaml-generator.js";
 import { HttpError, inTransaction, page, parse, readBody, sendResult, serveFile, type Result } from "./app.js";
-import { ACT_AS_HEADER, clientIp, loadDirectory, NOT_SET_UP, NOT_SET_UP_HTML, readChoices, resolveViewer, type Viewer } from "./identity.js";
+import { ACT_AS_HEADER, clientIp, loadDirectory, normaliseIp, NOT_SET_UP, NOT_SET_UP_HTML, readChoices, resolveViewer, type Viewer } from "./identity.js";
 import { isAvatar, loadResolved, loadRows, sha256, signProfile, SigningUnavailable, toKidPayload, unsignedProfile, type Signer } from "./kids.js";
 import { LOGICAL_TABLES, PgDocumentClient, type PgDocumentClientOptions } from "./pg-ddb.js";
 import { tryHandleTermDatesRoute } from "./routes.js";
@@ -55,6 +57,70 @@ function hostOf(headers: Record<string, string>): string {
 
 function byName(a: Record<string, unknown>, b: Record<string, unknown>) {
   return String(a.name ?? "").localeCompare(String(b.name ?? ""));
+}
+
+/** Colon, hyphen, Cisco and bare forms accepted by Postgres macaddr. */
+const MAC_ADDRESS =
+  /^(?:[0-9a-f]{2}([:-])(?:[0-9a-f]{2}\1){4}[0-9a-f]{2}|[0-9a-f]{4}([.-])[0-9a-f]{4}\2[0-9a-f]{4}|[0-9a-f]{6}[:-][0-9a-f]{6}|[0-9a-f]{12})$/i;
+
+function requireIpv4(value: unknown, message: string): string {
+  const ip = typeof value === "string" ? normaliseIp(value) : null;
+  if (!ip || isIP(ip) !== 4) throw new HttpError(400, message);
+  return ip;
+}
+
+/** Omitted, blank or null clears the column. PUT replaces the whole device row. */
+function optionalLabel(input: Record<string, unknown>): string | null {
+  if (input.label == null || input.label === "") return null;
+  if (typeof input.label !== "string") throw new HttpError(400, "label must be text");
+  const label = input.label.trim();
+  if (!label) return null;
+  if (label.length > 200) throw new HttpError(400, "label is too long");
+  return label;
+}
+
+function optionalMac(input: Record<string, unknown>): string | null {
+  if (input.mac == null || input.mac === "") return null;
+  if (typeof input.mac !== "string" || !MAC_ADDRESS.test(input.mac.trim())) throw new HttpError(400, "mac must be a MAC address");
+  return input.mac.trim();
+}
+
+async function upsertDevice(db: pg.PoolClient, input: Record<string, unknown>) {
+  const ip = requireIpv4(input.ip, "ip must be an IPv4 address");
+  if (typeof input.personId !== "string" || !input.personId.trim()) throw new HttpError(400, "personId is required");
+  const personId = input.personId.trim();
+  const known = await db.query("SELECT 1 FROM core.people WHERE id = $1", [personId]);
+  if (!known.rowCount) throw new HttpError(400, "Unknown person");
+  const { rows } = await db.query(
+    `INSERT INTO core.devices (ip, mac, person_id, label, updated_at)
+     VALUES ($1::inet, $2::macaddr, $3, $4, now())
+     ON CONFLICT (ip) DO UPDATE
+       SET mac = EXCLUDED.mac, person_id = EXCLUDED.person_id, label = EXCLUDED.label, updated_at = now()
+     RETURNING host(ip) AS ip, mac::text AS mac, person_id, label`,
+    [ip, optionalMac(input), personId, optionalLabel(input)],
+  );
+  const row = rows[0];
+  return { ip: row.ip as string, mac: (row.mac as string | null) ?? null, personId: row.person_id as string, label: (row.label as string | null) ?? null };
+}
+
+/** Parent-only device list. Auth (unknown / kid / parent) is enforced by the admin host before this runs. */
+async function adminDirectory(db: pg.PoolClient, method: string, which: string, query: Record<string, string>, rawBody: string, viewer: Viewer): Promise<Result> {
+  if (which === "people") {
+    if (method !== "GET") throw new HttpError(405, "Method not allowed");
+    return { status: 200, body: (await loadDirectory(db)).people };
+  }
+  if (which !== "devices") throw new HttpError(404, "Not found");
+  if (method === "GET") return { status: 200, body: (await loadDirectory(db)).devices };
+  if (method === "PUT") return { status: 200, body: await upsertDevice(db, parse(rawBody)) };
+  if (method === "DELETE") {
+    if (!query.ip?.trim()) throw new HttpError(400, "ip is required");
+    const ip = requireIpv4(query.ip, "ip must be an IPv4 address");
+    if (ip === viewer.ip) throw new HttpError(409, "You can't remove the device you're using");
+    const deleted = await db.query("DELETE FROM core.devices WHERE ip = $1::inet", [ip]);
+    if (!deleted.rowCount) throw new HttpError(404, "No such device");
+    return { status: 200, body: { deleted: true } };
+  }
+  throw new HttpError(405, "Method not allowed");
 }
 
 export function createLocalSites(options: LocalSitesOptions) {
@@ -123,7 +189,7 @@ export function createLocalSites(options: LocalSitesOptions) {
     return files.filter((name) => !name.startsWith(".")).sort();
   }
 
-  async function adminApi(db: pg.PoolClient, method: string, pathname: string, query: Record<string, string>, headers: Record<string, string>, rawBody: string): Promise<Result> {
+  async function adminApi(db: pg.PoolClient, method: string, pathname: string, query: Record<string, string>, headers: Record<string, string>, rawBody: string, viewer: Viewer): Promise<Result> {
     const ddb = new PgDocumentClient(db, options.ddbOptions);
     const send = (name: string, input: Record<string, unknown>) => ddb.send({ constructor: { name }, input } as never);
     const scan = async (table: string) => ((await send("ScanCommand", { TableName: table })) as { Items: Record<string, unknown>[] }).Items;
@@ -133,6 +199,8 @@ export function createLocalSites(options: LocalSitesOptions) {
     const resourceId = slash === -1 ? "" : rest.slice(slash + 1);
     const body = () => parse(rawBody);
     const ok = (value: unknown, status = 200): Result => ({ status, body: value });
+
+    if (resource === "admin") return adminDirectory(db, method, resourceId, query, rawBody, viewer);
 
     if (["budgets", "budget", "chores"].includes(resource)) {
       throw new HttpError(410, "Not on the home network: chores stay on chores.wainwright.fun and the old budgets are retired");
@@ -355,7 +423,7 @@ export function createLocalSites(options: LocalSitesOptions) {
         sendResult(res, { status: 200, body: { username: viewer.me.id, name: viewer.me.name, via: "device", ip: viewer.ip, groups: ["parents"] } });
         return;
       }
-      return api(req, res, url, headers, (db, m, p, q, raw) => adminApi(db, m, p, q, headers, raw));
+      return api(req, res, url, headers, (db, m, p, q, raw) => adminApi(db, m, p, q, headers, raw, viewer));
     }
     if (await serveIcons(pathname, method, res)) return;
     return serveFile(options.adminDir, pathname.slice(1), method, res, true);
