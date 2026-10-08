@@ -4,7 +4,8 @@ import * as route53 from "aws-cdk-lib/aws-route53";
 import { Construct } from "constructs";
 
 /**
- * ACME DNS-01 for apps that run on the home Mac Studio (snacks, kitchen and household).
+ * ACME DNS-01 for apps that run on the home Mac Studio (snacks, kitchen, household and the
+ * wainwright.fun apps that moved there).
  *
  * The Mac runs Caddy natively and gets real certificates for hostnames in this zone by writing
  * `_acme-challenge` TXT records. This stack creates one IAM user for that and nothing else:

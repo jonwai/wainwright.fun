@@ -77,6 +77,18 @@ new LocalAcmeDnsStack(app, "LocalAcmeDnsStack", {
     "admin.kitchen.wainwright.fun",
     "household.wainwright.fun",
     "admin.household.wainwright.fun",
+    // wainwright.fun apps moving to the Mac (8 Oct 2026). api and chores stay hosted: the chores
+    // site still runs on api.wainwright.fun and its tables.
+    "wainwright.fun",
+    "www.wainwright.fun",
+    "admin.wainwright.fun",
+    "tickets.wainwright.fun",
+    "twin.wainwright.fun",
+    "hannah.wainwright.fun",
+    "lydia.wainwright.fun",
+    "zoe.wainwright.fun",
+    "ethan.wainwright.fun",
+    "joanna.wainwright.fun",
   ],
   userName: "wainwright-fun-local-acme",
 });
