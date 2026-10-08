@@ -89,6 +89,8 @@ new LocalAcmeDnsStack(app, "LocalAcmeDnsStack", {
     "zoe.wainwright.fun",
     "ethan.wainwright.fun",
     "joanna.wainwright.fun",
+    // Bible Journey (jonwai/bible-journey) moving to the Mac (8 Oct 2026).
+    "bible.wainwright.fun",
   ],
   userName: "wainwright-fun-local-acme",
 });
