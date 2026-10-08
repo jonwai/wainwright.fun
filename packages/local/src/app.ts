@@ -51,7 +51,7 @@ export interface LocalTicketsOptions {
 }
 
 type Json = Record<string, unknown> | unknown[];
-interface Result {
+export interface Result {
   status: number;
   body: unknown;
   headers?: Record<string, string>;
@@ -62,7 +62,7 @@ const TICKETS_LOCK_SQL = "SELECT tickets.lock()";
 const ICON_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/svg+xml": "svg" };
 const MAX_ICON_BYTES = 5 * 1024 * 1024;
 
-class HttpError extends Error {
+export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
@@ -204,37 +204,8 @@ export function createLocalTickets(options: LocalTicketsOptions) {
     const query: Record<string, string> = {};
     url.searchParams.forEach((value, key) => (query[key] = value));
     const pathname = url.pathname.length > 5 && url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
-    const db = await pool.connect();
-    let result: Result;
-    try {
-      await db.query("BEGIN");
-      try {
-        result = await api(db, method, pathname, query, headers, rawBody, req.socket.remoteAddress ?? null, secure);
-      } catch (error) {
-        if (error instanceof HttpError) result = { status: error.status, body: { error: error.message, ...error.extra } };
-        else if (error instanceof RefusedWrite) result = { status: error.status, body: { error: error.message } };
-        else if (error instanceof SyntaxError) result = { status: 400, body: { error: "Body is not valid JSON" } };
-        else if (["23503", "23514", "23502", "22P02"].includes((error as { code?: string }).code ?? "")) {
-          // Foreign key, check, not-null, bad value: the database refused it; nothing was written.
-          log(`refused by the database: ${method} ${pathname}: ${(error as Error).message}`);
-          result = { status: 400, body: { error: "That breaks a data rule (unknown child or invalid value)" } };
-        }
-        else {
-          log(`request failed: ${method} ${pathname}: ${(error as Error).message}`);
-          result = { status: 500, body: { error: "Something went wrong" } };
-        }
-      }
-      await db.query(result.status < 400 ? "COMMIT" : "ROLLBACK");
-    } catch (error) {
-      await db.query("ROLLBACK").catch(() => undefined);
-      log(`transaction failed: ${method} ${pathname}: ${(error as Error).message}`);
-      result = { status: 500, body: { error: "Something went wrong" } };
-    } finally {
-      db.release();
-    }
-    const out: Record<string, string | string[]> = { "content-type": "application/json", "cache-control": "no-store" };
-    if (result.cookies?.length) out["set-cookie"] = result.cookies;
-    res.writeHead(result.status, out).end(JSON.stringify(result.body ?? null));
+    const result = await inTransaction(pool, log, method, pathname, (db) => api(db, method, pathname, query, headers, rawBody, req.socket.remoteAddress ?? null, secure));
+    sendResult(res, result);
   }
 
   return async function listener(req: IncomingMessage, res: ServerResponse) {
@@ -277,16 +248,62 @@ export function createLocalTickets(options: LocalTicketsOptions) {
   };
 }
 
-function parse(raw: string): Record<string, unknown> {
+/**
+ * Runs one API request in one transaction: COMMIT below 400, ROLLBACK otherwise, and turns
+ * the known failures into JSON errors (nothing half-written either way).
+ */
+export async function inTransaction(pool: pg.Pool, log: (line: string) => void, method: string, pathname: string, fn: (db: pg.PoolClient) => Promise<Result>): Promise<Result> {
+  const db = await pool.connect();
+  let result: Result;
+  try {
+    await db.query("BEGIN");
+    try {
+      result = await fn(db);
+    } catch (error) {
+      if (error instanceof HttpError) result = { status: error.status, body: { error: error.message, ...error.extra } };
+      else if (error instanceof RefusedWrite) result = { status: error.status, body: { error: error.message } };
+      else if (error instanceof SyntaxError) result = { status: 400, body: { error: "Body is not valid JSON" } };
+      else if (["23503", "23514", "23502", "22P02", "22007", "22008"].includes((error as { code?: string }).code ?? "")) {
+        // Foreign key, check, not-null, bad value or date: the database refused it; nothing was written.
+        log(`refused by the database: ${method} ${pathname}: ${(error as Error).message}`);
+        result = { status: 400, body: { error: "That breaks a data rule (unknown child or invalid value)" } };
+      } else {
+        log(`request failed: ${method} ${pathname}: ${(error as Error).message}`);
+        result = { status: 500, body: { error: "Something went wrong" } };
+      }
+    }
+    await db.query(result.status < 400 ? "COMMIT" : "ROLLBACK");
+  } catch (error) {
+    await db.query("ROLLBACK").catch(() => undefined);
+    log(`transaction failed: ${method} ${pathname}: ${(error as Error).message}`);
+    result = { status: 500, body: { error: "Something went wrong" } };
+  } finally {
+    db.release();
+  }
+  return result;
+}
+
+export function sendResult(res: ServerResponse, result: Result) {
+  const out: Record<string, string | string[]> = { "content-type": "application/json", "cache-control": "no-store", ...(result.headers ?? {}) };
+  if (result.cookies?.length) out["set-cookie"] = result.cookies;
+  if (Buffer.isBuffer(result.body)) {
+    out["content-length"] = String(result.body.length);
+    res.writeHead(result.status, out).end(result.body);
+    return;
+  }
+  res.writeHead(result.status, out).end(JSON.stringify(result.body ?? null));
+}
+
+export function parse(raw: string): Record<string, unknown> {
   const value = raw ? JSON.parse(raw) : {};
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function page(text: string): string {
-  return NOT_SET_UP_HTML.replaceAll(`${NOT_SET_UP}.`, text).replace(`<title>${NOT_SET_UP}</title>`, "<title>Tickets</title>");
+export function page(text: string, title = "Tickets"): string {
+  return NOT_SET_UP_HTML.replaceAll(`${NOT_SET_UP}.`, text).replace(`<title>${NOT_SET_UP}</title>`, `<title>${title}</title>`);
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+export function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -322,7 +339,7 @@ const TYPES: Record<string, string> = {
 };
 
 /** Serves a file under root; with `spa`, unknown extension-less paths get index.html. */
-async function serveFile(root: string | null | undefined, relative: string, method: string, res: ServerResponse, spa: boolean) {
+export async function serveFile(root: string | null | undefined, relative: string, method: string, res: ServerResponse, spa: boolean) {
   if (!root) {
     res.writeHead(404, { "content-type": "text/plain" }).end("Not found");
     return;

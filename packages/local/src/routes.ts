@@ -2,3 +2,4 @@
 // kid-routes and budget-routes imports to ./shims.
 import "./env.js";
 export { tryHandleTaskRoute } from "../../infra/lambda/task-routes.js";
+export { tryHandleTermDatesRoute } from "../../infra/lambda/term-dates.js";

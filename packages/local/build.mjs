@@ -19,7 +19,7 @@ const shimPlugin = {
 };
 
 await build({
-  entryPoints: { main: "src/main.ts", app: "src/app.ts", "import-hosted": "src/import-hosted.ts", migrate: "src/migrate.ts" },
+  entryPoints: { main: "src/main.ts", app: "src/app.ts", sites: "src/sites.ts", "import-hosted": "src/import-hosted.ts", "import-kids": "src/import-kids.ts", migrate: "src/migrate.ts" },
   outdir: "dist",
   outExtension: { ".js": ".mjs" },
   bundle: true,

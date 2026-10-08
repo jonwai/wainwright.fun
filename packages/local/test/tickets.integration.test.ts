@@ -20,6 +20,7 @@ const { createLocalTickets, PgDocumentClient, applyTicketsMigrations } = await i
 const { importHosted, importStragglers, readScans } = await import("../dist/import-hosted.mjs");
 
 const CORE = `
+  DROP SCHEMA IF EXISTS kids CASCADE;
   DROP SCHEMA IF EXISTS tickets CASCADE;
   DROP SCHEMA IF EXISTS core CASCADE;
   DROP TABLE IF EXISTS public.tickets_schema_migrations;

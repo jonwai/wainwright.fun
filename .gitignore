@@ -39,3 +39,5 @@ package-lock.json
 # home-network builds (packages/local)
 apps/admin/dist-local-tickets/
 apps/tickets/dist-local/
+apps/admin/dist-local-admin/
+apps/kids/dist-local/

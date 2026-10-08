@@ -7,6 +7,10 @@
  * first, with a limit. Anything else throws, so a hosted change that needs more fails loudly in
  * the tests instead of quietly doing the wrong thing.
  *
+ * It also serves the iPad config tables (children, apps, websites, themes, restrictions) for the
+ * wainwright.fun launcher and admin: children are core.people (+ kids.child_settings), the rest the
+ * kids schema.
+ *
  * Items map to the relational tables in the tickets schema (and core.term_dates); attributes we
  * do not model are kept in each row's `extra` jsonb so a Put → Get round trip loses nothing.
  * Sort keys compare as bytes (COLLATE "C"), the way DynamoDB orders string keys.
@@ -17,7 +21,7 @@ export interface Queryable {
 }
 
 type Item = Record<string, unknown>;
-type ColumnType = "text" | "int" | "bool" | "ts" | "textarr";
+type ColumnType = "text" | "int" | "bool" | "ts" | "textarr" | "json";
 
 interface Column {
   attr: string;
@@ -46,6 +50,11 @@ export const LOGICAL_TABLES = {
   rewards: "rewards",
   redemptions: "reward-redemptions",
   termDates: "term-dates",
+  children: "children",
+  apps: "apps",
+  websites: "websites",
+  themes: "themes",
+  restrictions: "restrictions",
 } as const;
 
 const SPECS: Record<string, TableSpec> = {
@@ -130,6 +139,44 @@ const SPECS: Record<string, TableSpec> = {
       col("claimed_at", "ts", { omitNull: true }),
     ],
   },
+  [LOGICAL_TABLES.apps]: {
+    table: "kids.apps",
+    key: ["bundle_id"],
+    columns: [
+      col("bundle_id", "text"),
+      col("name", "text"),
+      col("type", "text"),
+      col("app_store_url", "text", { omitNull: true }),
+      col("category", "text", { omitNull: true }),
+      col("icon", "text", { omitNull: true }),
+      col("show_on_site", "bool", { omitNull: true }),
+      col("min_age", "int"),
+      col("enabled", "bool"),
+    ],
+  },
+  [LOGICAL_TABLES.websites]: {
+    table: "kids.websites",
+    key: ["url"],
+    columns: [
+      col("url", "text"),
+      col("name", "text"),
+      col("icon", "text", { omitNull: true }),
+      col("category", "text", { omitNull: true }),
+      col("min_age", "int"),
+      col("enabled", "bool"),
+      { ...child(), omitNull: true },
+    ],
+  },
+  [LOGICAL_TABLES.themes]: {
+    table: "kids.themes",
+    key: ["from_age"],
+    columns: [col("from_age", "int"), col("theme", "text"), col("subtitle", "text"), col("restriction_overrides", "json", { omitNull: true })],
+  },
+  [LOGICAL_TABLES.restrictions]: {
+    table: "kids.restrictions",
+    key: ["key"],
+    columns: [col("key", "text"), col("value", "json"), col("type", "text"), col("overridable", "bool", { omitNull: true })],
+  },
 };
 
 /** Thrown for a write the home network refuses (e.g. undoing a household chore's award here). */
@@ -157,6 +204,8 @@ function toColumn(value: unknown, type: ColumnType): unknown {
     case "textarr":
       if (!Array.isArray(value)) throw new UnsupportedCommand("expected a list");
       return value.map(String);
+    case "json":
+      return JSON.stringify(value);
     case "ts":
     case "text":
       return String(value);
@@ -218,6 +267,7 @@ export class PgDocumentClient {
     const input = command.input;
     const tableName = String(input.TableName ?? "");
     if (tableName === LOGICAL_TABLES.termDates) return this.termDates(name, input);
+    if (tableName === LOGICAL_TABLES.children) return this.children(name, input);
     const spec = SPECS[tableName];
     if (!spec) {
       const memory = this.options.memory?.[tableName];
@@ -251,7 +301,7 @@ export class PgDocumentClient {
     const item = (input.Item ?? {}) as Item;
     const known = new Set(spec.columns.map((c) => c.attr));
     const extra: Item = {};
-    for (const [attr, value] of Object.entries(item)) if (!known.has(attr)) extra[attr] = value;
+    for (const [attr, value] of Object.entries(item)) if (!known.has(attr) && value !== undefined) extra[attr] = value;
     const columns = spec.columns.map((c) => c.column);
     const params = spec.columns.map((c) => toColumn(item[c.attr], c.type));
     columns.push("extra");
@@ -324,6 +374,70 @@ export class PgDocumentClient {
       params,
     );
     return { Items: rows.map((row) => rowToItem(spec, row)), Count: rows.length };
+  }
+
+  /**
+   * Children are the children in core.people (name, date of birth, colour, avatar live there for
+   * every app) plus their iPad settings in kids.child_settings. Item shape = hosted wainwright-children.
+   */
+  private async children(name: string, input: Record<string, any>) {
+    const select = `SELECT p.id, p.display_name, to_char(p.date_of_birth, 'YYYY-MM-DD') AS dob, p.color, p.avatar,
+                           s.child_id AS has_settings, s.locked, s.restriction_overrides, s.blocked_apps, s.extra
+                    FROM core.people p LEFT JOIN kids.child_settings s ON s.child_id = p.id
+                    WHERE p.role = 'child'`;
+    const toItem = (row: Record<string, any>): Item => {
+      const item: Item = { ...(row.extra ?? {}), subdomain: row.id, name: row.display_name };
+      if (row.dob !== null) item.date_of_birth = row.dob;
+      if (row.color !== null) item.color = row.color;
+      if (row.avatar !== null) item.avatar = row.avatar;
+      if (row.has_settings !== null) item.locked = row.locked;
+      if (row.restriction_overrides !== null && row.restriction_overrides !== undefined) item.restriction_overrides = row.restriction_overrides;
+      if (row.blocked_apps !== null && row.blocked_apps !== undefined) item.blocked_apps = row.blocked_apps;
+      return item;
+    };
+    if (name === "ScanCommand") {
+      if (input.FilterExpression || input.ExclusiveStartKey) throw new UnsupportedCommand("filtered or paged scans are not supported");
+      const { rows } = await this.db.query(`${select} ORDER BY p.sort_order, p.id`);
+      return { Items: rows.map(toItem), Count: rows.length };
+    }
+    if (name === "GetCommand") {
+      const { rows } = await this.db.query(`${select} AND p.id = $1`, [String(input.Key?.subdomain ?? "")]);
+      return { Item: rows[0] ? toItem(rows[0]) : undefined };
+    }
+    if (name === "DeleteCommand") {
+      throw new RefusedWrite("Children are people in core.people (shared by every app); they are not removed from here");
+    }
+    if (name !== "PutCommand" || input.ConditionExpression) throw new UnsupportedCommand(`${name} on children is not supported`);
+    const item = (input.Item ?? {}) as Item;
+    const id = String(item.subdomain ?? "").trim();
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new RefusedWrite("A child's ID must be lower-case letters, digits or dashes", 400);
+    const { rows: existing } = await this.db.query("SELECT role FROM core.people WHERE id = $1", [id]);
+    if (existing[0] && existing[0].role !== "child") throw new RefusedWrite(`${id} is a parent, not a child`);
+    const dob = typeof item.date_of_birth === "string" && item.date_of_birth ? item.date_of_birth : null;
+    const people = [id, String(item.name ?? ""), dob, item.color ?? null, item.avatar ?? null];
+    await this.db.query(
+      `INSERT INTO core.people (id, display_name, role, sort_order, date_of_birth, color, avatar)
+       VALUES ($1, $2, 'child', (SELECT COALESCE(max(sort_order), 0) + 1 FROM core.people), $3::date, $4, $5)
+       ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name, date_of_birth = EXCLUDED.date_of_birth,
+         color = EXCLUDED.color, avatar = EXCLUDED.avatar`,
+      people,
+    );
+    const known = new Set(["subdomain", "name", "date_of_birth", "color", "avatar", "locked", "restriction_overrides", "blocked_apps"]);
+    const extra: Item = {};
+    for (const [attr, value] of Object.entries(item)) if (!known.has(attr) && value !== undefined) extra[attr] = value;
+    await this.db.query(
+      `INSERT INTO kids.child_settings (child_id, locked, restriction_overrides, blocked_apps, extra) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (child_id) DO UPDATE SET locked = EXCLUDED.locked, restriction_overrides = EXCLUDED.restriction_overrides,
+         blocked_apps = EXCLUDED.blocked_apps, extra = EXCLUDED.extra`,
+      [
+        id,
+        item.locked !== false,
+        item.restriction_overrides === undefined || item.restriction_overrides === null ? null : JSON.stringify(item.restriction_overrides),
+        Array.isArray(item.blocked_apps) ? item.blocked_apps.map(String) : null,
+        JSON.stringify(extra),
+      ],
+    );
+    return {};
   }
 
   /** Term dates come from the shared core.term_dates, one item per academic year. Snacks edits them. */

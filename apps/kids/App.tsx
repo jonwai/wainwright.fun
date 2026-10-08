@@ -8,7 +8,11 @@ import { PairScreen } from "./components/PairScreen";
 import { KidsAvatarPicker } from "./components/KidsAvatarPicker";
 import { clearDeviceToken, getDeviceToken, setDeviceToken } from "./lib/deviceAuth";
 import {
+  chooseLocalChild,
   extractPairingCode,
+  fetchLocalViewer,
+  LOCAL_MODE,
+  type LocalPerson,
   fetchKidConfig,
   fetchKidPreview,
   pairDevice,
@@ -28,8 +32,11 @@ export default function App() {
   const [previewToken, setPreviewToken] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  // Home network only: a parent's device picks which child to look at.
+  const [localChildren, setLocalChildren] = useState<LocalPerson[] | null>(null);
+  const [localParent, setLocalParent] = useState(false);
 
-  const loadConfig = useCallback(async (token: string) => {
+  const loadConfig = useCallback(async (token?: string) => {
     const next = await fetchKidConfig(token);
     setConfig(next);
     applyKidTheme(next);
@@ -38,7 +45,28 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
 
+    async function bootLocal() {
+      try {
+        const viewer = await fetchLocalViewer();
+        if (cancelled) return;
+        setLocalParent(viewer.admin);
+        if (!viewer.child) {
+          if (viewer.admin) setLocalChildren(viewer.children);
+          else setError("This device isn't set up");
+          return;
+        }
+        await loadConfig();
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "Failed to load";
+        setError(message === "notSetUp" ? "This device isn't set up" : message === "pickChild" ? "Pick a child" : message);
+      } finally {
+        if (!cancelled) setBooting(false);
+      }
+    }
+
     async function boot() {
+      if (LOCAL_MODE) return bootLocal();
       const params = new URLSearchParams(window.location.search);
       const fromUrl = extractPairingCode(params.get("c") ?? params.get("code") ?? "");
 
@@ -121,6 +149,24 @@ export default function App() {
     }
   }
 
+  async function handleLocalChild(childId: string | null) {
+    setBusy(true);
+    try {
+      await chooseLocalChild(childId);
+      if (childId) {
+        await loadConfig();
+        setLocalChildren(null);
+      } else {
+        setConfig(null);
+        setLocalChildren((await fetchLocalViewer()).children);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not switch child");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleUnpair() {
     await unpairDevice();
     clearDeviceToken();
@@ -139,12 +185,45 @@ export default function App() {
     );
   }
 
+  if (!config && LOCAL_MODE && localChildren && !error) {
+    return (
+      <div className="page">
+        <main className="container mx-auto px-5 pt-10 pb-12 max-w-md">
+          <h1 className="text-2xl font-extrabold mb-6 text-center">Whose apps?</h1>
+          <ul className="grid gap-3 list-none p-0 m-0">
+            {localChildren.map((child) => (
+              <li key={child.id}>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="w-full min-h-14 px-5 rounded-xl text-lg font-bold bg-surface-solid border border-border cursor-pointer text-left"
+                  onClick={() => void handleLocalChild(child.id)}
+                >
+                  {child.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </main>
+      </div>
+    );
+  }
+
   if (!config) {
     if (error) {
       return (
         <div className="page">
           <main className="container mx-auto px-5 pt-10 pb-12">
             <p className="text-red-600">{error}</p>
+          </main>
+        </div>
+      );
+    }
+    if (LOCAL_MODE) {
+      return (
+        <div className="page">
+          <main className="container mx-auto px-5 pt-10 pb-12">
+            <p>This device isn&apos;t set up.</p>
           </main>
         </div>
       );
@@ -245,7 +324,7 @@ export default function App() {
           profileUpdatedAt={config.profileUpdatedAt}
           childName={config.child.name}
           avatar={config.child.avatar}
-          profileUrl={token ? profileDownloadUrl(token) : undefined}
+          profileUrl={LOCAL_MODE ? profileDownloadUrl("") : token ? profileDownloadUrl(token) : undefined}
         />
 
         <div className="flex flex-col gap-10 mt-10">
@@ -316,7 +395,19 @@ export default function App() {
           )}
         </div>
 
-        {!previewing && (
+        {LOCAL_MODE && localParent && (
+          <p className="mt-10 text-center">
+            <button
+              type="button"
+              className="text-muted text-xs font-semibold border-none bg-transparent cursor-pointer underline-offset-2 hover:underline"
+              onClick={() => void handleLocalChild(null)}
+            >
+              Look at another child
+            </button>
+          </p>
+        )}
+
+        {!previewing && !LOCAL_MODE && (
           <p className="mt-10 text-center">
             <button
               type="button"

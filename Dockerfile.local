@@ -1,38 +1,51 @@
-# tickets.wainwright.fun on the home network (Wainsburys/local docker compose): the hosted tickets
-# handlers on Postgres behind IP identity, plus the tickets kid app and admin, built in the image.
-# Hosted builds (apps/*/dist) are untouched.
+# tickets.wainwright.fun, wainwright.fun and admin.wainwright.fun on the home network
+# (Wainsburys/local docker compose): the hosted tickets handlers and iPad config generator on
+# Postgres behind IP identity, plus the tickets app, the kids' launcher and the admins, built in
+# the image. Hosted builds (apps/*/dist) are untouched.
 FROM node:22-alpine AS build
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@8.15.1 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/tickets/package.json apps/tickets/
 COPY apps/admin/package.json apps/admin/
+COPY apps/kids/package.json apps/kids/
 COPY packages/local/package.json packages/local/
-RUN pnpm install --frozen-lockfile --filter @wainwright/tickets --filter @wainwright/admin --filter @wainwright/local
+RUN pnpm install --frozen-lockfile --filter @wainwright/tickets --filter @wainwright/admin --filter @wainwright/kids --filter @wainwright/local
 COPY . .
 RUN cd apps/tickets && VITE_API_URL=/api VITE_LOCAL_AUTH=1 npx vite build --outDir dist-local \
  && cd ../admin && VITE_API_URL=/api npx vite build -c vite.local-tickets.config.ts \
  && mv dist-local-tickets/local-tickets.html dist-local-tickets/index.html \
+ && npx vite build -c vite.local-admin.config.ts \
+ && mv dist-local-admin/local-admin.html dist-local-admin/index.html \
+ && cd ../kids && npx vite build -c vite.local.config.ts \
  && cd ../../packages/local && node build.mjs
 
 FROM node:22-alpine
 WORKDIR /app
+# openssl signs the iPad profiles (the same smime command as hosted); su-exec drops to node.
+RUN apk add --no-cache openssl su-exec
 ENV NODE_ENV=production \
     TZ=Europe/London \
     PORT=43127 \
     TICKETS_STATIC_DIR=/app/tickets \
     TICKETS_ADMIN_DIR=/app/admin \
     TICKETS_ICONS_DIR=/data/ticket-icons \
-    TICKETS_MIGRATIONS_DIR=/app/migrations
+    TICKETS_MIGRATIONS_DIR=/app/migrations \
+    KIDS_STATIC_DIR=/app/kids \
+    KIDS_ADMIN_DIR=/app/kids-admin \
+    KIDS_ICONS_DIR=/data/kids-icons
 COPY --from=build /app/packages/local/dist ./dist
 COPY --from=build /app/packages/local/migrations ./migrations
 COPY --from=build /app/apps/tickets/dist-local ./tickets
 COPY --from=build /app/apps/admin/dist-local-tickets ./admin
+COPY --from=build /app/apps/kids/dist-local ./kids
+COPY --from=build /app/apps/admin/dist-local-admin ./kids-admin
 # Photos as in the hosted site bucket (same 74 files as public/ticket-icons on 8 Oct 2026).
 # Copied into the volume on start without overwriting uploads.
 COPY --from=build /app/public/ticket-icons ./seed-icons
+COPY --from=build /app/packages/local/docker-entrypoint.sh ./docker-entrypoint.sh
 RUN mkdir -p /data/ticket-icons && chown node:node /data/ticket-icons
-USER node
+# Runs as root only to pass the signing files to node, then as node (see docker-entrypoint.sh).
 EXPOSE 43127
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD wget -qO- http://127.0.0.1:43127/api/health >/dev/null || exit 1
-CMD ["sh", "-c", "cp -n /app/seed-icons/* /data/ticket-icons/ 2>/dev/null; exec node dist/main.mjs"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
