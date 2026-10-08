@@ -10,6 +10,43 @@ const TOKEN_KEY = "wfk_device_token";
 
 export const KID_API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
 
+/**
+ * Home-network build (VITE_LOCAL_AUTH=1, served by packages/local on the Mac): no pairing and no
+ * device token. The server recognises the iPad by its IP address; an unknown device is refused
+ * ("notsetup"). A parent's device picks which child to show ("pickchild"), kept in localStorage
+ * and sent as a header.
+ */
+export const LOCAL_AUTH = import.meta.env.VITE_LOCAL_AUTH === "1";
+const ACT_AS_KEY = "tickets_act_as";
+
+export interface LocalPerson {
+  id: string;
+  name: string;
+  role: "child" | "parent";
+}
+export interface LocalWhoAmI {
+  viewer: { me: LocalPerson | null; child: LocalPerson | null; admin: boolean; kidDevice: boolean };
+  people: LocalPerson[];
+}
+
+export async function whoAmI(): Promise<LocalWhoAmI> {
+  const response = await kidFetch("/local/whoami");
+  if (!response.ok) throw new Error("Could not check this device");
+  return response.json();
+}
+
+/** A parent's device: show this child (null to pick again). */
+export async function chooseChild(childId: string | null): Promise<void> {
+  try {
+    if (childId) localStorage.setItem(ACT_AS_KEY, childId);
+    else localStorage.removeItem(ACT_AS_KEY);
+  } catch {
+    // The cookie the server sets still carries the choice.
+  }
+  const response = await kidFetch("/local/session", { method: "POST", body: JSON.stringify({ actAs: childId }) });
+  if (!response.ok) throw new Error("Could not switch child");
+}
+
 export interface KidTask {
   task_id: string;
   /** Set when this job comes from a board posting, else null. */
@@ -151,14 +188,30 @@ export async function unpairDevice(): Promise<void> {
 
 async function kidFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  const token = getDeviceToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (LOCAL_AUTH) {
+    let actAs: string | null = null;
+    try {
+      actAs = localStorage.getItem(ACT_AS_KEY);
+    } catch {
+      // Private browsing: the cookie still carries it.
+    }
+    if (actAs) headers.set("x-tickets-act-as", actAs);
+  } else {
+    const token = getDeviceToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
   if (init.body) headers.set("Content-Type", "application/json");
-  return fetch(`${KID_API_URL}${path}`, {
+  const response = await fetch(`${KID_API_URL}${path}`, {
     ...init,
     headers,
     credentials: "include",
   });
+  if (LOCAL_AUTH && response.status === 403) {
+    const data = await response.clone().json().catch(() => ({}));
+    if (data.notSetUp) throw new Error("notsetup");
+  }
+  if (LOCAL_AUTH && response.status === 401) throw new Error("pickchild");
+  return response;
 }
 
 export async function fetchTasksState(): Promise<TasksState> {

@@ -35,3 +35,7 @@ package-lock.json
 
 # CDK lookup cache (holds account ids and zone ids; regenerate with cdk synth)
 **/cdk.context.json
+
+# home-network builds (packages/local)
+apps/admin/dist-local-tickets/
+apps/tickets/dist-local/

@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { QrScanner } from "./components/QrScanner";
 import {
+  chooseChild,
   completeTask,
+  LOCAL_AUTH,
+  whoAmI,
+  type LocalWhoAmI,
   extractPairingCode,
   fetchRewardsState,
   fetchTaskHistory,
@@ -53,15 +57,25 @@ export default function App() {
   const [pairing, setPairing] = useState(false);
   const [typedCode, setTypedCode] = useState("");
   const [pairMode, setPairMode] = useState<"home" | "scan" | "type">("home");
+  // Home network only: who this device is.
+  const [notSetUp, setNotSetUp] = useState(false);
+  const [who, setWho] = useState<LocalWhoAmI | null>(null);
+  const [pickChild, setPickChild] = useState(false);
 
   const load = useCallback(async () => {
     try {
+      if (LOCAL_AUTH) setWho(await whoAmI());
       const next = await fetchTasksState();
       setState(next);
       setError(null);
       setUnpaired(false);
+      setPickChild(false);
     } catch (err) {
-      if (err instanceof Error && err.message === "unpaired") {
+      if (err instanceof Error && err.message === "notsetup") {
+        setNotSetUp(true);
+      } else if (err instanceof Error && err.message === "pickchild") {
+        setPickChild(true);
+      } else if (err instanceof Error && err.message === "unpaired") {
         setUnpaired(true);
       } else {
         setError(err instanceof Error ? err.message : "Could not load your jobs");
@@ -209,6 +223,48 @@ export default function App() {
     }
   }
 
+  if (notSetUp) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6">
+        <div className="max-w-md w-full p-10 bg-surface border border-border rounded-xl text-center shadow-card">
+          <p className="text-lg font-semibold">This device isn't set up.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (pickChild && who) {
+    const children = who.people.filter((person) => person.role === "child");
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6">
+        <div className="max-w-md w-full p-10 bg-surface border border-border rounded-xl text-center shadow-card">
+          <div className="text-5xl mb-4">🎟️</div>
+          <h1 className="text-2xl font-extrabold mb-2">Which child?</h1>
+          <p className="text-muted mb-6">Hello {who.viewer.me?.name}. Pick whose tickets to look at.</p>
+          <div className="flex flex-col gap-3">
+            {children.map((child) => (
+              <button
+                key={child.id}
+                type="button"
+                className="inline-flex items-center justify-center min-h-12 px-6 w-full rounded-md text-text text-base font-semibold cursor-pointer border border-border bg-surface-solid"
+                onClick={() => {
+                  void chooseChild(child.id).then(load);
+                }}
+              >
+                {child.name}
+              </button>
+            ))}
+            {who.viewer.admin && (
+              <a className="text-muted text-sm font-semibold mt-2" href="/admin/">
+                Parent admin
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (unpaired) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
@@ -306,7 +362,24 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="px-6 pt-8 pb-4 text-center">
-        <h1 className="text-3xl font-extrabold">🎟️ My Tickets</h1>
+        <h1 className="text-3xl font-extrabold">🎟️ {LOCAL_AUTH && who?.viewer.admin && who.viewer.child ? `${who.viewer.child.name}'s Tickets` : "My Tickets"}</h1>
+        {LOCAL_AUTH && who?.viewer.admin && (
+          <p className="text-sm text-muted mt-1 flex justify-center gap-4">
+            <button
+              type="button"
+              className="border-none bg-transparent cursor-pointer text-muted font-semibold underline"
+              onClick={() => {
+                setState(null);
+                void chooseChild(null).then(load);
+              }}
+            >
+              Switch child
+            </button>
+            <a className="font-semibold underline text-muted" href="/admin/">
+              Parent admin
+            </a>
+          </p>
+        )}
         <p className="text-muted text-lg">Do your jobs to earn tickets</p>
         <div className="mt-3 inline-flex items-baseline gap-2 bg-accent-soft rounded-full px-5 py-2">
           <span className="text-2xl font-extrabold text-accent-strong">{totalTickets}</span>
