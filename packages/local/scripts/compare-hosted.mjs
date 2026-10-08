@@ -154,6 +154,7 @@ const bundle = arg("--bundle");
 const scans = arg("--scans");
 const databaseUrl = arg("--database-url", "postgres://wainsburys:wainsburys@127.0.0.1:5432/wainsburys");
 const served = arg("--served", "http://127.0.0.1:43127");
+const noServedProfile = args.includes("--no-served-profile");
 const certFile = arg("--cert", path.join(os.homedir(), ".config/wainwright-fun/profile-signing-cert.pem"));
 if (!bundle || !scans) throw new Error("usage: compare-hosted --bundle <index.js> --scans <dir>");
 const { default: pg } = await import("pg");
@@ -190,8 +191,10 @@ try {
       const config = spawnSync("curl", ["-sf", ...host, `${served}/kid/config`], { encoding: "utf8" });
       entry.servedConfig = config.status !== 0 ? "FETCH FAILED" : normaliseConfig(JSON.parse(config.stdout)) === hc ? "same" : `DIFFERENT: ${firstDifference(hc, normaliseConfig(JSON.parse(config.stdout)))}`;
       const file = path.join(tmp, `${child}.mobileconfig`);
-      const profile = spawnSync("curl", ["-sf", "-o", file, ...host, `${served}/kid/profile`]);
-      if (profile.status !== 0) entry.servedProfile = "FETCH FAILED";
+      // Every served profile is recorded in kids.profile_downloads: --no-served-profile skips it on live data.
+      const profile = noServedProfile ? null : spawnSync("curl", ["-sf", "-o", file, ...host, `${served}/kid/profile`]);
+      if (!profile) entry.servedProfile = "not fetched (--no-served-profile)";
+      else if (profile.status !== 0) entry.servedProfile = "FETCH FAILED";
       else {
         const verified = spawnSync("openssl", ["smime", "-verify", "-inform", "DER", "-in", file, "-CAfile", certFile, "-purpose", "any"], { encoding: "utf8" });
         if (verified.status !== 0) entry.servedProfile = "SIGNATURE DID NOT VERIFY";
