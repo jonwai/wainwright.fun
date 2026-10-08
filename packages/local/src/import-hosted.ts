@@ -248,16 +248,140 @@ async function reconcile(db: pg.PoolClient, hosted: HostedTickets, removed: Reco
   return { counts, removed, mismatches: mismatches.slice(0, 20), balances, pending, localOnly, ok };
 }
 
+/**
+ * After the DNS switch the local tables are the live ones, so a full import would undo local changes
+ * to hosted-sourced rows (a local undo, refund or claim). importStragglers compares two hosted scans
+ * (the one imported at the switch and a later one) and only ADDS the awards and redemptions hosted
+ * gained in between. Anything hosted changed or removed, and any library change, is reported for a
+ * parent to look at, never applied. It commits only if every row that was already here is unchanged.
+ */
+export interface StragglerReport {
+  hosted: Record<string, { added: string[]; changed: string[]; removed: string[] }>;
+  inserted: { awards: string[]; redemptions: string[] };
+  alreadyHere: { awards: string[]; redemptions: string[] };
+  notApplied: string[];
+  localUnchanged: boolean;
+  bySource: { before: Record<string, number>; after: Record<string, number> };
+  balances: Record<string, { spendable: number; pending: number }>;
+  ok: boolean;
+}
+
+const KEY_OF: Record<keyof HostedTickets, (i: Item) => string> = {
+  tasks: (i) => i.task_id,
+  board: (i) => i.board_id,
+  rewards: (i) => i.reward_id,
+  completions: (i) => `${i.child_subdomain}#${i.task_completion}`,
+  redemptions: (i) => `${i.child_subdomain}#${i.redemption_id}`,
+};
+
+function diffScans(before: Item[], now: Item[], keyOf: (i: Item) => string) {
+  const was = new Map(before.map((i) => [keyOf(i), JSON.stringify(normalise(i))]));
+  const is = new Map(now.map((i) => [keyOf(i), i]));
+  return {
+    added: [...is.keys()].filter((k) => !was.has(k)),
+    changed: [...is].filter(([k, i]) => was.has(k) && was.get(k) !== JSON.stringify(normalise(i))).map(([k]) => k),
+    removed: [...was.keys()].filter((k) => !is.has(k)),
+  };
+}
+
+// Every existing row, excluding the ones this run inserts.
+const FINGERPRINT = `SELECT
+  (SELECT md5(coalesce(string_agg(t::text, '|' ORDER BY t.task_id), '')) FROM tickets.tasks t) ||
+  (SELECT md5(coalesce(string_agg(b::text, '|' ORDER BY b.board_id), '')) FROM tickets.board b) ||
+  (SELECT md5(coalesce(string_agg(r::text, '|' ORDER BY r.reward_id), '')) FROM tickets.rewards r) ||
+  (SELECT md5(coalesce(string_agg(a::text, '|' ORDER BY a.child_id, a.task_completion), '')) FROM tickets.awards a
+     WHERE NOT ((a.child_id || '#' || a.task_completion) = ANY($1::text[]))) ||
+  (SELECT md5(coalesce(string_agg(x::text, '|' ORDER BY x.child_id, x.redemption_id), '')) FROM tickets.redemptions x
+     WHERE NOT ((x.child_id || '#' || x.redemption_id) = ANY($2::text[]))) AS fp`;
+
+const BY_SOURCE = `SELECT 'awards:' || source AS k, count(*)::int AS n FROM tickets.awards GROUP BY source
+  UNION ALL SELECT 'redemptions:' || source, count(*)::int FROM tickets.redemptions GROUP BY source`;
+
+export async function importStragglers(pool: pg.Pool, before: HostedTickets, now: HostedTickets, { dryRun = false } = {}): Promise<StragglerReport> {
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    await db.query("SELECT tickets.lock()");
+    const hosted = Object.fromEntries(
+      (Object.keys(KEY_OF) as (keyof HostedTickets)[]).map((table) => [table, diffScans(before[table], now[table], KEY_OF[table])]),
+    ) as StragglerReport["hosted"];
+    const counts = async () => Object.fromEntries((await db.query(BY_SOURCE)).rows.map((r) => [r.k, r.n]));
+    const bySourceBefore = await counts();
+    const fpBefore = (await db.query(FINGERPRINT, [[], []])).rows[0].fp;
+
+    const inserted: StragglerReport["inserted"] = { awards: [], redemptions: [] };
+    const alreadyHere: StragglerReport["alreadyHere"] = { awards: [], redemptions: [] };
+    const nowAwards = new Map(now.completions.map((c) => [KEY_OF.completions(c), c]));
+    for (const key of hosted.completions.added) {
+      const c = nowAwards.get(key)!;
+      const row = await db.query(
+        `INSERT INTO tickets.awards (child_id, task_completion, task_id, completed_at, completed_by, tickets, label, source, source_ref, extra)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'hosted',$8,$9) ON CONFLICT DO NOTHING RETURNING id`,
+        [c.child_subdomain, c.task_completion, c.task_id, c.completed_at, c.completed_by, c.tickets, v(c.label), key, extra(c, MODELLED.completions)],
+      );
+      (row.rowCount ? inserted.awards : alreadyHere.awards).push(key);
+    }
+    const nowRedemptions = new Map(now.redemptions.map((r) => [KEY_OF.redemptions(r), r]));
+    for (const key of hosted.redemptions.added) {
+      const r = nowRedemptions.get(key)!;
+      const row = await db.query(
+        `INSERT INTO tickets.redemptions (child_id, redemption_id, reward_id, redeemed_at, redeemed_by, tickets, status, claimed_at, source, extra)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'hosted',$9) ON CONFLICT DO NOTHING RETURNING child_id`,
+        [r.child_subdomain, r.redemption_id, r.reward_id, r.redeemed_at, r.redeemed_by, r.tickets, r.status, v(r.claimed_at), extra(r, MODELLED.redemptions)],
+      );
+      (row.rowCount ? inserted.redemptions : alreadyHere.redemptions).push(key);
+    }
+
+    const fpAfter = (await db.query(FINGERPRINT, [inserted.awards, inserted.redemptions])).rows[0].fp;
+    const notApplied = [
+      ...(["tasks", "board", "rewards"] as const).flatMap((t) => [...hosted[t].added, ...hosted[t].changed, ...hosted[t].removed].map((k) => `${t}: ${k} changed on hosted`)),
+      ...hosted.completions.changed.map((k) => `award ${k} changed on hosted`),
+      ...hosted.completions.removed.map((k) => `award ${k} removed on hosted (undone there)`),
+      ...hosted.redemptions.changed.map((k) => `redemption ${k} changed on hosted`),
+      ...hosted.redemptions.removed.map((k) => `redemption ${k} removed on hosted (refunded there)`),
+    ];
+    const balances = Object.fromEntries(
+      (await db.query("SELECT child_id, spendable, pending FROM tickets.balances ORDER BY child_id")).rows.map((r) => [r.child_id, { spendable: r.spendable, pending: r.pending }]),
+    );
+    const report: StragglerReport = {
+      hosted,
+      inserted,
+      alreadyHere,
+      notApplied,
+      localUnchanged: fpBefore === fpAfter,
+      bySource: { before: bySourceBefore, after: await counts() },
+      balances,
+      ok: fpBefore === fpAfter,
+    };
+    await db.query(report.ok && !dryRun ? "COMMIT" : "ROLLBACK");
+    return report;
+  } catch (error) {
+    await db.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    db.release();
+  }
+}
+
 const isMain = process.argv[1] && /import-hosted\.(m?js|ts)$/.test(process.argv[1]);
 if (isMain) {
   const args = process.argv.slice(2);
   const from = args[args.indexOf("--from") + 1];
-  if (!args.includes("--from") || !from) throw new Error("usage: import-hosted --from <dir of scans> [--dry-run]");
+  if (!args.includes("--from") || !from) throw new Error("usage: import-hosted --from <dir of scans> [--stragglers-since <dir of the scans imported at the switch> | --full] [--dry-run]");
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   try {
     await waitForCore(pool, { attempts: 1 });
     await applyTicketsMigrations(pool);
-    const report = await importHosted(pool, await readScans(from), { dryRun: args.includes("--dry-run") });
+    const since = args.includes("--stragglers-since") ? args[args.indexOf("--stragglers-since") + 1] : null;
+    const dryRun = args.includes("--dry-run");
+    // Since the DNS switch (8 Oct 2026) the local tables are live; the full import would make
+    // hosted-sourced rows match hosted again, undoing local undos, refunds and claims.
+    if (!since && !dryRun && !args.includes("--full")) {
+      throw new Error("tickets are live locally: use --stragglers-since <dir of the scans imported at the switch>, or --full to really mirror hosted");
+    }
+    const report = since
+      ? await importStragglers(pool, await readScans(since), await readScans(from), { dryRun })
+      : await importHosted(pool, await readScans(from), { dryRun });
     console.log(JSON.stringify(report, null, 2));
     process.exitCode = report.ok ? 0 : 1;
   } finally {

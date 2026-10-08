@@ -7,7 +7,7 @@
 - **Identity** (`src/identity.ts`, the same code as Snacks): by client IP from `core.devices` (Caddy's `X-Real-IP`). Kid devices: that kid only, never the admin. Parent devices: admin plus "act as" any child. Unknown: "This device isn't set up", no data. No sign-in, pairing or tokens.
 - **Every API request is one transaction**; writes take an advisory lock, so two redeems cannot overspend.
 - **Front ends.** The kid app (`apps/tickets`, built with `VITE_LOCAL_AUTH=1 VITE_API_URL=/api` into `dist-local`) and the admin's Tickets panel alone (`apps/admin/local-tickets.html`, `vite.local-tickets.config.ts`, served at `/admin/`).
-- **Import** (`src/import-hosted.ts`): from read-only scans of the six hosted tables; mirrors the library, upserts hosted awards and redemptions, keeps local ones, and commits only when the result matches hosted item for item with equal balances. Idempotent. See Wainsburys/local README "Tickets".
+- **Import** (`src/import-hosted.ts`): from read-only scans of the six hosted tables; mirrors the library, upserts hosted awards and redemptions, keeps local ones, and commits only when the result matches hosted item for item with equal balances. Idempotent. See Wainsburys/local README "Tickets". Since the DNS switch (8 Oct 2026, 12:04 BST) the local tables are live: use `--stragglers-since <scans imported at the switch>`, which only adds hosted awards and redemptions that are new since then and commits only if every existing row is unchanged; the full import would undo local changes to hosted-sourced rows.
 
 ```bash
 pnpm --filter @wainwright/local build

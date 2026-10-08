@@ -17,7 +17,7 @@ const url = process.env.TICKETS_TEST_DATABASE_URL;
 // @ts-ignore built bundle
 const { createLocalTickets, PgDocumentClient, applyTicketsMigrations } = await import("../dist/app.mjs");
 // @ts-ignore built bundle
-const { importHosted, readScans } = await import("../dist/import-hosted.mjs");
+const { importHosted, importStragglers, readScans } = await import("../dist/import-hosted.mjs");
 
 const CORE = `
   DROP SCHEMA IF EXISTS tickets CASCADE;
@@ -312,6 +312,49 @@ test("other apps award in their own transaction, idempotently; household awards 
   assert.equal((await pool.query("SELECT tickets.revoke('household', 'ref-1') AS removed")).rows[0].removed, true);
   assert.equal((await pool.query("SELECT tickets.revoke('household', 'ref-1') AS removed")).rows[0].removed, false);
   await assert.rejects(pool.query("SELECT tickets.award('jonathan', 'chores#x', 1, 'x', 'household', 'ref-2')"), /foreign key/);
+});
+
+test("after the switch, stragglers only add new hosted rows and never touch local changes", { skip: !url }, async () => {
+  const atSwitch = hostedFixture();
+  assert.equal((await importHosted(pool, atSwitch)).ok, true);
+  // Local life after the switch: Zoe's pending reward is handed over, Lydia's job is undone, household awards.
+  await pool.query("UPDATE tickets.redemptions SET status = 'claimed', claimed_at = '2026-10-08T12:00:00Z' WHERE redemption_id = 'mf2-bbb'");
+  await pool.query("DELETE FROM tickets.awards WHERE child_id = 'lydia' AND task_id = 'feed-cat'");
+  await pool.query("SELECT tickets.award('zoe', 'chores#oven', 3, 'Clean the Oven', 'household', 'oven#1#zoe', '2026-10-08T12:01:00Z')");
+  await pool.query("UPDATE tickets.rewards SET ticket_cost = 6 WHERE reward_id = 'small-toy'");
+  const snapshot = async () => (await pool.query("SELECT (SELECT json_agg(a ORDER BY a.task_completion) FROM tickets.awards a)::text || (SELECT json_agg(r ORDER BY r.redemption_id) FROM tickets.redemptions r)::text || (SELECT json_agg(w ORDER BY w.reward_id) FROM tickets.rewards w)::text AS s")).rows[0].s;
+  const localBefore = await snapshot();
+
+  // Hosted meanwhile: one late award and one late redemption (stragglers), plus a change and a removal there.
+  const later = hostedFixture();
+  later.completions.push({ child_subdomain: "lydia", task_completion: "tidy-room#2026-10-08T11:05:00.000Z#late", task_id: "tidy-room", completed_at: "2026-10-08T11:05:00.000Z", completed_by: "child", tickets: 2 });
+  later.redemptions.push({ child_subdomain: "lydia", redemption_id: "mf9-late", reward_id: "screen-time", redeemed_at: "2026-10-08T11:06:00.000Z", redeemed_by: "child", tickets: 1, status: "pending" });
+  later.redemptions = later.redemptions.filter((r) => r.redemption_id !== "mf1-aaa");
+  later.tasks[0] = { ...later.tasks[0], ticket_reward: 9 };
+
+  const dry = await importStragglers(pool, atSwitch, later, { dryRun: true });
+  assert.equal(await snapshot(), localBefore, "dry run changes nothing");
+  const report = await importStragglers(pool, atSwitch, later);
+  assert.equal(report.ok, true);
+  assert.deepEqual(dry.inserted, report.inserted);
+  assert.deepEqual(report.inserted, { awards: ["lydia#tidy-room#2026-10-08T11:05:00.000Z#late"], redemptions: ["lydia#mf9-late"] });
+  assert.deepEqual(report.notApplied.sort(), ["redemption zoe#mf1-aaa removed on hosted (refunded there)", "tasks: tidy-room changed on hosted"]);
+  // Every row that was here is exactly as it was; only the two stragglers were added.
+  const after = await pool.query("SELECT child_id, task_id, task_completion FROM tickets.awards WHERE source = 'hosted' ORDER BY task_completion");
+  // Hosted had 3 at the switch; Lydia's feed-cat was undone locally; one straggler arrived.
+  assert.deepEqual(after.rows.map((r) => `${r.child_id}#${r.task_id}`).sort(), ["lydia#tidy-room", "zoe#bonus", "zoe#tidy-room"]);
+  assert.equal(after.rows.some((r) => r.task_id === "feed-cat"), false, "a local undo stays undone");
+  assert.equal((await pool.query("SELECT status FROM tickets.redemptions WHERE redemption_id = 'mf2-bbb'")).rows[0].status, "claimed");
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets.redemptions WHERE redemption_id = 'mf1-aaa'")).rows[0].n, 1);
+  assert.equal((await pool.query("SELECT ticket_cost FROM tickets.rewards WHERE reward_id = 'small-toy'")).rows[0].ticket_cost, 6);
+  assert.equal((await pool.query("SELECT ticket_reward FROM tickets.tasks WHERE task_id = 'tidy-room'")).rows[0].ticket_reward, 2);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets.awards WHERE source = 'household'")).rows[0].n, 1);
+  // Idempotent: a second run adds nothing.
+  const again = await importStragglers(pool, atSwitch, later);
+  assert.deepEqual(again.inserted, { awards: [], redemptions: [] });
+  assert.deepEqual(again.alreadyHere, report.inserted);
+  assert.equal(again.ok, true);
+  await pool.query("SELECT tickets.revoke('household', 'oven#1#zoe')");
 });
 
 test("term dates come from core.term_dates and are read-only here", { skip: !url }, async () => {
