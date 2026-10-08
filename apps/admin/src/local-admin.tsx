@@ -52,7 +52,7 @@ function LocalAdmin() {
         ))}
       </nav>
       <main className="flex-1 p-4 sm:p-8 max-w-5xl mx-auto w-full">
-        {tab === "children" && <ChildrenPanel accessToken={TOKEN} includeSnacks={false} />}
+        {tab === "children" && <ChildrenPanel accessToken={TOKEN} includeSnacks={false} includePairing={false} />}
         {tab === "apps" && <AppsPanel accessToken={TOKEN} />}
         {tab === "system-apps" && <SystemAppsPanel accessToken={TOKEN} />}
         {tab === "websites" && <WebsitesPanel accessToken={TOKEN} />}

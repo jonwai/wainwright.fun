@@ -18,7 +18,7 @@ import { SnackBalanceCard } from "./SnackBalanceCard";
 
 // ── Children ─────────────────────────────────────────────────────
 
-const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean } = {}): TableConfig<Child> => ({
+const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean; includePairing?: boolean } = {}): TableConfig<Child> => ({
   entityName: "Child",
   pluralName: "Children",
   fields: [
@@ -34,7 +34,7 @@ const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean } =
   editTabs: [
     { label: "Details", fields: ["subdomain", "name", "date_of_birth", "color", "avatar", "locked"] },
     { label: "Restrictions", fields: ["restriction_overrides", "blocked_apps"] },
-    { label: "Pairing", fields: [], extras: true },
+    ...(opts.includePairing === false ? [] : [{ label: "Pairing", fields: [] as string[], extras: true }]),
     ...(opts.includeSnacks === false ? [] : [{
       label: "Snacks",
       fields: [] as string[],
@@ -117,10 +117,10 @@ const themesConfig = (accessToken: string): TableConfig<Theme> => ({
 
 // ── Exported components ───────────────────────────────────────────
 
-export function ChildrenPanel({ accessToken, includeSnacks = true }: { accessToken: string; includeSnacks?: boolean }) {
+export function ChildrenPanel({ accessToken, includeSnacks = true, includePairing = true }: { accessToken: string; includeSnacks?: boolean; includePairing?: boolean }) {
   return (
     <IconGridEditor
-      config={childrenConfig(accessToken, { includeSnacks }) as unknown as TableConfig<Record<string, unknown>>}
+      config={childrenConfig(accessToken, { includeSnacks, includePairing }) as unknown as TableConfig<Record<string, unknown>>}
       iconUrl={() => null}
       fallbackEmoji="🌟"
       itemEmoji={(item) => childAvatar((item as unknown as Child).avatar)}
@@ -130,7 +130,7 @@ export function ChildrenPanel({ accessToken, includeSnacks = true }: { accessTok
         return hex ? hexToRgba(hex, 0.15) : undefined;
       }}
       accessToken={accessToken}
-      editExtras={(item, isNew) => {
+      editExtras={includePairing ? (item, isNew) => {
         if (isNew) return null;
         const child = item as unknown as Child;
         return <PairQrCard
@@ -138,7 +138,7 @@ export function ChildrenPanel({ accessToken, includeSnacks = true }: { accessTok
           subdomain={child.subdomain}
           childName={child.name}
         />;
-      }}
+      } : undefined}
     />
   );
 }
