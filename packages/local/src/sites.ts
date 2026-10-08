@@ -5,7 +5,7 @@
  *   wainwright.fun        the kids' launcher; the child is the device's IP (core.devices), a parent
  *                         may pick a child to look at. /kid/config, /kid/avatar, /kid/profile.
  *   admin.wainwright.fun  the iPad config admin (children, apps, websites, themes, restrictions,
- *                         tickets, term dates). Parents' devices only; never a child's device.
+ *                         term dates). Parents' devices only; never a child's device.
  *   www.wainwright.fun    301 to wainwright.fun (as the hosted CloudFront function).
  *   anything else         tickets (tickets.wainwright.fun, health checks).
  *
@@ -32,7 +32,7 @@ const PROFILE_TYPE = "application/x-apple-aspen-config";
 
 export interface LocalSitesOptions {
   pool: pg.Pool;
-  /** The tickets listener (createLocalTickets): tickets host, and the admin's Tickets tab API. */
+  /** The tickets listener (createLocalTickets): the tickets host, health checks and whoami. */
   tickets: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   /** Built kids launcher (apps/kids, local mode). */
   kidsDir?: string | null;
@@ -346,8 +346,10 @@ export function createLocalSites(options: LocalSitesOptions) {
 
     if (isApi) {
       const resource = pathname.slice("/api/".length).split("/")[0];
-      // The Tickets tab: the tickets server's own admin API (it checks the device again).
-      if (["tasks", "rewards", "board"].includes(resource)) return options.tickets(req, res);
+      // Tickets has its own app and admin (tickets.wainwright.fun/admin/); this admin has no Tickets tab.
+      if (["tasks", "rewards", "board"].includes(resource)) {
+        return sendResult(res, { status: 410, body: { error: "Tickets are managed at https://tickets.wainwright.fun/admin/" } });
+      }
       if (pathname === "/api/local/whoami") return options.tickets(req, res);
       if (pathname === "/api/me" && method === "GET") {
         sendResult(res, { status: 200, body: { username: viewer.me.id, name: viewer.me.name, via: "device", ip: viewer.ip, groups: ["parents"] } });

@@ -18,7 +18,7 @@ import { SnackBalanceCard } from "./SnackBalanceCard";
 
 // ── Children ─────────────────────────────────────────────────────
 
-const childrenConfig = (accessToken: string): TableConfig<Child> => ({
+const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean } = {}): TableConfig<Child> => ({
   entityName: "Child",
   pluralName: "Children",
   fields: [
@@ -35,11 +35,15 @@ const childrenConfig = (accessToken: string): TableConfig<Child> => ({
     { label: "Details", fields: ["subdomain", "name", "date_of_birth", "color", "avatar", "locked"] },
     { label: "Restrictions", fields: ["restriction_overrides", "blocked_apps"] },
     { label: "Pairing", fields: [], extras: true },
-    { label: "Snacks", fields: [], extrasFn: (item, isNew) => {
-      if (isNew) return null;
-      const child = item as unknown as Child;
-      return <SnackBalanceCard accessToken={accessToken} subdomain={child.subdomain} />;
-    } },
+    ...(opts.includeSnacks === false ? [] : [{
+      label: "Snacks",
+      fields: [] as string[],
+      extrasFn: (item: Record<string, unknown>, isNew: boolean) => {
+        if (isNew) return null;
+        const child = item as unknown as Child;
+        return <SnackBalanceCard accessToken={accessToken} subdomain={child.subdomain} />;
+      },
+    }]),
   ],
   load: () => getChildren(accessToken),
   save: (item) => putChild(accessToken, item.subdomain, item),
@@ -113,10 +117,10 @@ const themesConfig = (accessToken: string): TableConfig<Theme> => ({
 
 // ── Exported components ───────────────────────────────────────────
 
-export function ChildrenPanel({ accessToken }: { accessToken: string }) {
+export function ChildrenPanel({ accessToken, includeSnacks = true }: { accessToken: string; includeSnacks?: boolean }) {
   return (
     <IconGridEditor
-      config={childrenConfig(accessToken) as unknown as TableConfig<Record<string, unknown>>}
+      config={childrenConfig(accessToken, { includeSnacks }) as unknown as TableConfig<Record<string, unknown>>}
       iconUrl={() => null}
       fallbackEmoji="🌟"
       itemEmoji={(item) => childAvatar((item as unknown as Child).avatar)}

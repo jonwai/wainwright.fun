@@ -359,7 +359,8 @@ test("term dates read from core, written only in Snacks; retired routes say so",
   assert.equal((await admin("/api/children/zoe/pair", MAC, { method: "POST" })).status, 410);
   assert.deepEqual((await admin("/api/pairings", MAC)).json, []);
   assert.equal((await admin("/api/rebuild", MAC, { method: "POST" })).status, 202);
-  assert.equal((await admin("/api/tasks", MAC)).status, 200, "the Tickets tab reaches the tickets API");
+  for (const p of ["/api/tasks", "/api/rewards", "/api/board"]) assert.equal((await admin(p, MAC)).status, 410, `${p}: tickets has its own admin`);
+  assert.equal((await call("tickets.wainwright.fun", "/api/health", null)).status, 200);
   const icons = await admin("/api/icons", MAC);
   assert.deepEqual(icons.json, { appIcons: ["111.jpg"], websiteIcons: ["cbeebies.png"], systemIcons: [] });
   const config = await admin("/api/config", MAC);

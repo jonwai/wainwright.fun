@@ -2,18 +2,18 @@
  * The iPad config admin on the home network (admin.wainwright.fun, served by packages/local).
  * The hosted admin's panels without Cognito: the server only answers a parent's device (by IP
  * address), so the "token" is a placeholder it ignores. Pairing, Snacks, Chores and Deploy are not
- * here: devices are recognised by IP, Snacks has its own admin, chores stay on
- * chores.wainwright.fun, and nothing is deployed.
+ * here: devices are recognised by IP, Snacks and Tickets each have their own app
+ * (snacks.wainwright.fun, tickets.wainwright.fun), chores stay on chores.wainwright.fun,
+ * and nothing is deployed.
  */
 import { StrictMode, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { ChildrenPanel, AppsPanel, SystemAppsPanel, WebsitesPanel, ThemesPanel, RestrictionsPanel } from "./TablePanels";
-import { TasksPanel } from "./TasksPanel";
 import { TermDatesPanel } from "./TermDatesPanel";
 import { TABS, tabToPath, useRoute, type Tab } from "./useRoute";
 import "./index.css";
 
-const LOCAL_TABS: Tab[] = ["children", "apps", "system-apps", "websites", "themes", "restrictions", "tickets", "term-dates"];
+const LOCAL_TABS: Tab[] = ["children", "apps", "system-apps", "websites", "themes", "restrictions", "term-dates"];
 const TOKEN = "home-network";
 
 function LocalAdmin() {
@@ -52,13 +52,12 @@ function LocalAdmin() {
         ))}
       </nav>
       <main className="flex-1 p-4 sm:p-8 max-w-5xl mx-auto w-full">
-        {tab === "children" && <ChildrenPanel accessToken={TOKEN} />}
+        {tab === "children" && <ChildrenPanel accessToken={TOKEN} includeSnacks={false} />}
         {tab === "apps" && <AppsPanel accessToken={TOKEN} />}
         {tab === "system-apps" && <SystemAppsPanel accessToken={TOKEN} />}
         {tab === "websites" && <WebsitesPanel accessToken={TOKEN} />}
         {tab === "themes" && <ThemesPanel accessToken={TOKEN} />}
         {tab === "restrictions" && <RestrictionsPanel accessToken={TOKEN} />}
-        {tab === "tickets" && <TasksPanel accessToken={TOKEN} />}
         {tab === "term-dates" && (
           <>
             <p className="text-sm text-muted mb-4">Term dates are edited in Snacks on the home network; they are shown here read-only.</p>
