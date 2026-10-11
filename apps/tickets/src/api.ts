@@ -226,11 +226,21 @@ export async function fetchTasksState(): Promise<TasksState> {
   return response.json();
 }
 
-export async function fetchTaskHistory(): Promise<TaskHistoryEntry[]> {
+export interface TicketHistory {
+  completions: TaskHistoryEntry[];
+  redemptions: KidRedemption[];
+}
+
+/** Tickets earned and rewards cashed in, each newest first. */
+export async function fetchTicketHistory(): Promise<TicketHistory> {
   const response = await kidFetch("/kid/tasks/history");
+  if (response.status === 401) throw new Error("unpaired");
   if (!response.ok) throw new Error("Could not load your ticket history");
   const data = await response.json();
-  return data.completions as TaskHistoryEntry[];
+  return {
+    completions: (data.completions ?? []) as TaskHistoryEntry[],
+    redemptions: (data.redemptions ?? []) as KidRedemption[],
+  };
 }
 
 export async function completeTask(

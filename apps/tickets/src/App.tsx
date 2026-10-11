@@ -8,12 +8,13 @@ import {
   type LocalWhoAmI,
   extractPairingCode,
   fetchRewardsState,
-  fetchTaskHistory,
+  fetchTicketHistory,
   fetchTasksState,
   pairDevice,
   redeemReward,
   refundReward,
   undoTask,
+  type KidRedemption,
   type KidReward,
   type KidTask,
   type RewardsState,
@@ -43,10 +44,16 @@ function periodLabel(period: "week" | "month" | "summer" | "term" | "year"): str
   return period;
 }
 
+/** ISO timestamps sort lexicographically; newest first. */
+function newestFirst<T>(items: T[], dateOf: (item: T) => string): T[] {
+  return [...items].sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
+}
+
 export default function App() {
   const [state, setState] = useState<TasksState | null>(null);
   const [rewardsState, setRewardsState] = useState<RewardsState | null>(null);
   const [history, setHistory] = useState<TaskHistoryEntry[] | null>(null);
+  const [cashedIn, setCashedIn] = useState<KidRedemption[] | null>(null);
   const [screen, setScreen] = useState<Screen>("jobs");
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -61,6 +68,7 @@ export default function App() {
   const [notSetUp, setNotSetUp] = useState(false);
   const [who, setWho] = useState<LocalWhoAmI | null>(null);
   const [pickChild, setPickChild] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -83,6 +91,59 @@ export default function App() {
     }
   }, []);
 
+  const refresh = useCallback(async () => {
+    if (refreshing || busyId) return;
+    setRefreshing(true);
+    const started = Date.now();
+    try {
+      const [tasksOutcome, rewardsOutcome, historyOutcome] = await Promise.allSettled([
+        (async () => {
+          if (LOCAL_AUTH) setWho(await whoAmI());
+          return fetchTasksState();
+        })(),
+        fetchRewardsState(),
+        fetchTicketHistory(),
+      ]);
+
+      if (tasksOutcome.status === "fulfilled") {
+        setState(tasksOutcome.value);
+        setUnpaired(false);
+        setPickChild(false);
+        setNotSetUp(false);
+      }
+      if (rewardsOutcome.status === "fulfilled") {
+        setRewardsState(rewardsOutcome.value);
+      }
+      if (historyOutcome.status === "fulfilled") {
+        setHistory(historyOutcome.value.completions);
+        setCashedIn(historyOutcome.value.redemptions);
+      }
+
+      const failure = [tasksOutcome, rewardsOutcome, historyOutcome].find(
+        (outcome) => outcome.status === "rejected"
+      );
+      if (failure && failure.status === "rejected") {
+        const err = failure.reason;
+        if (err instanceof Error && err.message === "notsetup") {
+          setNotSetUp(true);
+        } else if (err instanceof Error && err.message === "pickchild") {
+          setPickChild(true);
+        } else if (err instanceof Error && err.message === "unpaired") {
+          setUnpaired(true);
+        } else {
+          setError(err instanceof Error ? err.message : "Could not refresh");
+        }
+      } else {
+        setError(null);
+      }
+    } finally {
+      // Keep the spinner up long enough to see on a fast home-network response.
+      const wait = 400 - (Date.now() - started);
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      setRefreshing(false);
+    }
+  }, [busyId, refreshing, screen]);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -96,9 +157,15 @@ export default function App() {
 
   useEffect(() => {
     if (screen === "history") {
-      fetchTaskHistory()
-        .then(setHistory)
-        .catch(() => setHistory([]));
+      fetchTicketHistory()
+        .then((next) => {
+          setHistory(next.completions);
+          setCashedIn(next.redemptions);
+        })
+        .catch(() => {
+          setHistory([]);
+          setCashedIn([]);
+        });
     }
     if (screen === "rewards") {
       setRewardsState(null);
@@ -391,6 +458,18 @@ export default function App() {
           </span>
           <span className="text-xs text-muted">· {totalTickets} earned</span>
         </div>
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={refreshing || busyId !== null}
+            aria-busy={refreshing}
+            className="inline-flex items-center justify-center gap-2 min-h-12 px-5 rounded-full border border-border bg-surface-solid text-accent-strong text-base font-extrabold cursor-pointer touch-manipulation transition-colors active:bg-accent-soft disabled:opacity-60 disabled:cursor-default"
+          >
+            <RefreshIcon spinning={refreshing} />
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </header>
 
       <nav className="flex justify-center gap-2 px-6 pb-4">
@@ -458,41 +537,94 @@ export default function App() {
               onRefund={refund}
             />
           )
-        ) : history === null ? (
+        ) : history === null || cashedIn === null ? (
           <div className="flex justify-center py-10">
             <div className="spinner" />
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
-            {history.length === 0 && (
-              <p className="text-center text-muted py-8">
-                No tickets yet — do a job to earn your first one! 😊
-              </p>
-            )}
-            {history.map((entry) => (
-              <div
-                key={`${entry.task_id}/${entry.completed_at}`}
-                className="bg-surface border border-border rounded-lg p-4 backdrop-blur-md flex items-center gap-3"
-              >
-                <span className="w-10 h-10 rounded-md bg-accent-soft flex items-center justify-center text-xl shrink-0">
-                  🎟️
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span className="block font-semibold truncate">{entry.title}</span>
-                  <span className="block text-xs text-muted">
-                    {friendlyDate(entry.completed_at)} at {friendlyTime(entry.completed_at)}
-                    {entry.completed_by === "parent" ? " · by a grown-up" : ""}
+          <div className="flex flex-col gap-8">
+            <section className="flex flex-col gap-4">
+              <h2 className="text-xl font-extrabold">My tickets</h2>
+              {history.length === 0 && (
+                <p className="text-center text-muted py-4">
+                  No tickets yet — do a job to earn your first one! 😊
+                </p>
+              )}
+              {newestFirst(history, (entry) => entry.completed_at).map((entry) => (
+                <div
+                  key={`${entry.task_id}/${entry.completed_at}`}
+                  className="bg-surface border border-border rounded-lg p-4 backdrop-blur-md flex items-center gap-3"
+                >
+                  <span className="w-10 h-10 rounded-md bg-accent-soft flex items-center justify-center text-xl shrink-0">
+                    🎟️
                   </span>
-                </span>
-                <span className="text-accent-strong font-extrabold whitespace-nowrap">
-                  +{entry.tickets}
-                </span>
-              </div>
-            ))}
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-semibold truncate">{entry.title}</span>
+                    <span className="block text-xs text-muted">
+                      {friendlyDate(entry.completed_at)} at {friendlyTime(entry.completed_at)}
+                      {entry.completed_by === "parent" ? " · by a grown-up" : ""}
+                    </span>
+                  </span>
+                  <span className="text-accent-strong font-extrabold whitespace-nowrap">
+                    +{entry.tickets}
+                  </span>
+                </div>
+              ))}
+            </section>
+            <section className="flex flex-col gap-4">
+              <h2 className="text-xl font-extrabold">My rewards</h2>
+              {cashedIn.length === 0 && (
+                <p className="text-center text-muted py-4">
+                  No rewards yet — swap your tickets when you're ready! 🎁
+                </p>
+              )}
+              {newestFirst(cashedIn, (entry) => entry.redeemed_at).map((entry) => (
+                <div
+                  key={entry.redemption_id}
+                  className="bg-surface border border-border rounded-lg p-4 backdrop-blur-md flex items-center gap-3"
+                >
+                  <span className="w-10 h-10 rounded-md bg-accent-soft flex items-center justify-center text-xl shrink-0">
+                    🎁
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-semibold truncate">{entry.title}</span>
+                    <span className="block text-xs text-muted">
+                      {friendlyDate(entry.redeemed_at)} at {friendlyTime(entry.redeemed_at)}
+                      {entry.status === "pending"
+                        ? " · Pending"
+                        : entry.status === "claimed"
+                          ? " · Claimed"
+                          : ""}
+                    </span>
+                  </span>
+                  <span className="text-accent-strong font-extrabold whitespace-nowrap">
+                    −{entry.tickets}
+                  </span>
+                </div>
+              ))}
+            </section>
           </div>
         )}
       </main>
     </div>
+  );
+}
+
+function RefreshIcon({ spinning }: { spinning: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={`w-6 h-6 ${spinning ? "animate-spin" : ""}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+    </svg>
   );
 }
 

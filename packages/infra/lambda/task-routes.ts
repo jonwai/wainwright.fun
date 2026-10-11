@@ -21,7 +21,8 @@
  * Kid routes (device token, same as the main app and Snacks):
  *   GET  /kid/tasks                       → my tasks, total earned, and
  *                                           tickets left (earned − redeemed)
- *   GET  /kid/tasks/history               → my completion log
+ *   GET  /kid/tasks/history               → my tickets and cash-ins,
+ *                                           each newest first
  *   POST /kid/tasks/{taskId}/complete    → mark complete (earns tickets)
  *   POST /kid/tasks/{taskId}/undo        → undo my latest completion
  *
@@ -982,18 +983,48 @@ async function handleKidTaskHistory(
   const auth = await resolveKid(event, ddb);
   if (isKidDenied(auth)) return auth;
 
-  const completions = await completionsForChild(ddb, auth.subdomain, 100);
-  const tasks = new Map((await listTasks(ddb)).map((t) => [t.task_id, t]));
+  // Query order follows the sort key (task id, then time), so an older job
+  // with a later name can land above a newer one. Date order is what the
+  // kid sees. Cap after sorting so the cap is the newest 100, not an
+  // arbitrary page of the sort key.
+  const [completions, redemptions, tasks, rewards] = await Promise.all([
+    completionsForChild(ddb, auth.subdomain),
+    redemptionsForChild(ddb, auth.subdomain),
+    listTasks(ddb),
+    listRewards(ddb),
+  ]);
+  const taskById = new Map(tasks.map((t) => [t.task_id, t]));
+  const rewardTitle = new Map(rewards.map((r) => [r.reward_id, r.title]));
+  const newestCompletions = [...completions]
+    .sort(
+      (a, b) =>
+        b.completed_at.localeCompare(a.completed_at) ||
+        b.task_completion.localeCompare(a.task_completion)
+    )
+    .slice(0, 100);
+  const newestRedemptions = [...redemptions].sort(
+    (a, b) =>
+      b.redeemed_at.localeCompare(a.redeemed_at) ||
+      b.redemption_id.localeCompare(a.redemption_id)
+  );
   return json(event, 200, {
-    completions: completions.map((c) => ({
+    completions: newestCompletions.map((c) => ({
       task_id: c.task_id,
       title:
         c.task_id === BONUS_TASK_ID
           ? c.label ?? "Bonus tickets"
-          : tasks.get(c.task_id)?.title ?? c.task_id,
+          : taskById.get(c.task_id)?.title ?? c.task_id,
       completed_at: c.completed_at,
       completed_by: c.completed_by,
       tickets: c.tickets,
+    })),
+    redemptions: newestRedemptions.map((r) => ({
+      redemption_id: r.redemption_id,
+      reward_id: r.reward_id,
+      title: rewardTitle.get(r.reward_id) ?? r.reward_id,
+      redeemed_at: r.redeemed_at,
+      tickets: r.tickets,
+      status: r.status,
     })),
   });
 }

@@ -250,6 +250,8 @@ test("a child completes, undoes, redeems and refunds; balances hold", { skip: !u
   assert.equal(done.body.total_tickets, 2);
   const history = await call("/api/kid/tasks/history", LYDIA);
   assert.equal(history.body.completions[0].title, "Feed the cat");
+  const completionDates = history.body.completions.map((c: { completed_at: string }) => c.completed_at);
+  assert.deepEqual(completionDates, [...completionDates].sort().reverse(), "ticket history is newest first");
   assert.equal((await call("/api/kid/tasks/feed-cat/undo", LYDIA, { method: "POST" })).body.total_tickets, 1);
   assert.equal((await call("/api/kid/tasks/feed-cat/complete", LYDIA, { method: "POST" })).status, 200);
 
@@ -261,6 +263,12 @@ test("a child completes, undoes, redeems and refunds; balances hold", { skip: !u
   const redeemed = await call("/api/kid/rewards/screen-time/redeem", LYDIA, { method: "POST" });
   assert.equal(redeemed.status, 200);
   assert.equal(redeemed.body.spendable_tickets, 1);
+  const historyAfterRedeem = await call("/api/kid/tasks/history", LYDIA);
+  assert.equal(historyAfterRedeem.body.redemptions[0].title, "Extra screen time");
+  assert.equal(historyAfterRedeem.body.redemptions[0].tickets, 1);
+  assert.equal(historyAfterRedeem.body.redemptions[0].status, "pending");
+  const redemptionDates = historyAfterRedeem.body.redemptions.map((r: { redeemed_at: string }) => r.redeemed_at);
+  assert.deepEqual(redemptionDates, [...redemptionDates].sort().reverse(), "cashed-in rewards are newest first");
   const tasksAfterRedeem = await call("/api/kid/tasks", LYDIA);
   assert.equal(tasksAfterRedeem.body.total_tickets, 2);
   assert.equal(tasksAfterRedeem.body.spendable_tickets, 1, "jobs payload shows tickets left after cash-in");

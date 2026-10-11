@@ -791,6 +791,71 @@ const bonusUndo = must(
   "admin bonus undo"
 );
 assert(bonusUndo.statusCode === 200, "bonus undo returns 200");
+
+// 43. History is newest-by-date, not by the Dynamo sort key, and lists
+// every cash-in with its recorded cost and status.
+tables.COMPLETIONS.set("sort-old", {
+  child_subdomain: "hannah",
+  task_completion: "zzz-bed#2026-01-01T08:00:00.000Z#old",
+  task_id: "make-your-bed",
+  completed_at: "2026-01-01T08:00:00.000Z",
+  completed_by: "child",
+  tickets: 2,
+});
+tables.COMPLETIONS.set("sort-new", {
+  child_subdomain: "hannah",
+  task_completion: "aaa-cat#2026-10-02T08:00:00.000Z#new",
+  task_id: "feed-the-cat",
+  completed_at: "2026-10-02T08:00:00.000Z",
+  completed_by: "parent",
+  tickets: 1,
+});
+tables.REDEMPTIONS.set("cash-old-id", {
+  child_subdomain: "hannah",
+  redemption_id: "zzz-later-id",
+  reward_id: "marble",
+  redeemed_at: "2026-02-01T12:00:00.000Z",
+  redeemed_by: "child",
+  tickets: 1,
+  status: "pending",
+});
+tables.REDEMPTIONS.set("cash-new-date", {
+  child_subdomain: "hannah",
+  redemption_id: "aaa-earlier-id",
+  reward_id: "song",
+  redeemed_at: "2026-09-15T12:00:00.000Z",
+  redeemed_by: "child",
+  tickets: 1,
+  status: "claimed",
+});
+const sortedHistory = must(
+  await tryHandleTaskRoute(event("GET", "/kid/tasks/history") as never, "GET", "kid", "tasks/history", ddb),
+  "kid history (date order)"
+);
+const sortedBody = JSON.parse(sortedHistory.body);
+const completionDates = sortedBody.completions.map((c: { completed_at: string }) => c.completed_at);
+assert(
+  completionDates.every((date: string, i: number) => i === 0 || completionDates[i - 1] >= date),
+  "ticket history is newest first"
+);
+const october = completionDates.indexOf("2026-10-02T08:00:00.000Z");
+const january = completionDates.indexOf("2026-01-01T08:00:00.000Z");
+assert(october !== -1 && january !== -1 && october < january, "later date beats a sort key that would come first");
+const redemptionDates = sortedBody.redemptions.map((r: { redeemed_at: string }) => r.redeemed_at);
+assert(
+  redemptionDates.every((date: string, i: number) => i === 0 || redemptionDates[i - 1] >= date),
+  "cashed-in rewards are newest first"
+);
+const song = sortedBody.redemptions.find((r: { redemption_id: string }) => r.redemption_id === "aaa-earlier-id");
+const marbleCash = sortedBody.redemptions.find((r: { reward_id: string }) => r.reward_id === "marble" && r.redeemed_at === "2026-02-01T12:00:00.000Z");
+assert(song?.title === "Song", "cashed-in reward title resolved");
+assert(song?.tickets === 1, "cashed-in reward keeps its ticket cost");
+assert(song?.status === "claimed", "claimed cash-in keeps its status");
+assert(marbleCash?.status === "pending", "pending cash-in keeps its status");
+assert(
+  redemptionDates.indexOf("2026-09-15T12:00:00.000Z") < redemptionDates.indexOf("2026-02-01T12:00:00.000Z"),
+  "newer cash-in is listed before an older one with a later id"
+);
 const bonusUndoDenied = must(
   await tryHandleTaskRoute(event("POST", "/tasks/bonus/children/hannah/undo", {}) as never, "POST", "tasks", "bonus/children/hannah/undo", ddb),
   "admin bonus undo (empty)"
