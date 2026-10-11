@@ -473,7 +473,6 @@ export class ApiStack extends cdk.Stack {
           `https://admin.${domainName}`,
           `https://snacks.${domainName}`,
           `https://tickets.${domainName}`,
-          `https://twin.${domainName}`,
           `https://chores.${domainName}`,
           "http://localhost:5173",
           "http://localhost:5174",

@@ -333,21 +333,8 @@ export function resolveChildConfig(
       hidden: true,
       web_clip: true,
     },
-    {
-      name: "Twin",
-      url: `https://twin.${config.domain}`,
-      hidden: true,
-      web_clip: true,
-    },
-    // Chores and Sky ID are in the profiles installed on the iPads (the API deployed on
-    // 25 Sep 2026 has them) but were never committed; restored so a build from the repo
-    // gives the iPads exactly what they have. See packages/infra/scripts/verify-sky-id.ts.
-    {
-      name: "Chores",
-      url: `https://chores.${config.domain}`,
-      hidden: true,
-      web_clip: true,
-    },
+    // Sky ID is in the profiles installed on the iPads (restored so a build from the repo matches
+    // them; see packages/infra/scripts/verify-sky-id.ts). Chores was retired on 11 Oct 2026.
     {
       name: "Sky ID",
       url: "https://id.sky.com",

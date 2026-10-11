@@ -1,16 +1,10 @@
 import * as cdk from "aws-cdk-lib";
-import { KidsAppsStack } from "../lib/kids-apps-stack.js";
-import { AuthStack } from "../lib/auth-stack.js";
-import { ApiStack } from "../lib/api-stack.js";
 import { GatewayDnsStack } from "../lib/gateway-dns-stack.js";
 import { LocalAcmeDnsStack } from "../lib/local-acme-dns-stack.js";
 
 const app = new cdk.App();
 
 const domainName = "wainwright.fun";
-const authDomain = `auth.${domainName}`;
-const apiDomain = `api.${domainName}`;
-const adminOrigin = `https://admin.${domainName}`;
 
 /**
  * The Lakitu gateway account and the role its CDK deploys under. These two values are the whole
@@ -22,31 +16,11 @@ const gatewayAccount = "967281205009";
 const account = "926274062211";
 const region = "us-east-1"; // CloudFront + ACM certs require us-east-1
 
-const kidsAppsStack = new KidsAppsStack(app, "KidsAppsStack", {
-  env: { account, region },
-  domainName,
-});
-
-const authStack = new AuthStack(app, "AuthStack", {
-  env: { account, region },
-  hostedZone: kidsAppsStack.hostedZone,
-  certificate: kidsAppsStack.certificate,
-  domainName,
-  authDomain,
-  adminOrigin,
-});
-
-new ApiStack(app, "ApiStack", {
-  env: { account, region },
-  hostedZone: kidsAppsStack.hostedZone,
-  certificate: kidsAppsStack.certificate,
-  domainName,
-  apiDomain,
-  userPool: authStack.userPool,
-  userPoolClient: authStack.userPoolClient,
-  configBucket: kidsAppsStack.bucket,
-  distribution: kidsAppsStack.distribution,
-});
+// KidsAppsStack, AuthStack and ApiStack (CloudFront site, Cognito, API Gateway + DynamoDB) were
+// retired on 11 Oct 2026: every wainwright.fun site now runs on the home Mac (packages/local,
+// Caddy). Their CloudFormation stacks were deleted; a backup of tables, bucket and templates is
+// in ~/Backups/wainwright-fun-aws-2026-10-11 on the Mac. The lib/ files stay for reference and
+// because packages/local reuses the Lambda handlers. Only the DNS helper stacks below remain.
 
 /**
  * DNS for the Lakitu LiteLLM gateway (which lives in `gatewayAccount`). Deploy this once with the
@@ -77,13 +51,11 @@ new LocalAcmeDnsStack(app, "LocalAcmeDnsStack", {
     "admin.kitchen.wainwright.fun",
     "household.wainwright.fun",
     "admin.household.wainwright.fun",
-    // wainwright.fun apps moving to the Mac (8 Oct 2026). api and chores stay hosted: the chores
-    // site still runs on api.wainwright.fun and its tables.
+    // wainwright.fun apps moved to the Mac (8 Oct 2026); hosted api/auth/chores/twin retired 11 Oct 2026.
     "wainwright.fun",
     "www.wainwright.fun",
     "admin.wainwright.fun",
     "tickets.wainwright.fun",
-    "twin.wainwright.fun",
     "hannah.wainwright.fun",
     "lydia.wainwright.fun",
     "zoe.wainwright.fun",

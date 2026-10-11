@@ -33,7 +33,6 @@ const ALLOWED_ORIGINS = new Set([
   "https://admin.wainwright.fun",
   "https://snacks.wainwright.fun",
   "https://tickets.wainwright.fun",
-  "https://twin.wainwright.fun",
   "https://chores.wainwright.fun",
   "http://localhost:5173",
   "http://localhost:5174",

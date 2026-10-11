@@ -25,10 +25,6 @@ certificates/
 *.log
 npm-debug.log*
 
-# twin: runtime assets synced from ~/Documents/home-twin (scripts/sync-twin-assets.ts)
-apps/twin/public/model/
-apps/twin/public/furniture/
-apps/twin/public/lights/
 
 # npm lockfile superseded by pnpm-lock.yaml
 package-lock.json
