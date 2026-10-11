@@ -1,4 +1,5 @@
 import type { WebsiteEntry } from "../../../packages/shared/scripts/config";
+import { assetUrl } from "../lib/kidApi";
 import { AppListItem } from "./BlockedAppCard";
 
 interface WebsiteCardProps {
@@ -7,10 +8,11 @@ interface WebsiteCardProps {
 }
 
 function WebsiteIcon({ site }: Pick<WebsiteCardProps, "site">) {
-  if (site.icon_url) {
+  const iconSrc = assetUrl(site.icon_url);
+  if (iconSrc) {
     return (
       <img
-        src={site.icon_url}
+        src={iconSrc}
         alt=""
         className="app-icon-image"
         loading="lazy"

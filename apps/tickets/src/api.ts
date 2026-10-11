@@ -6,17 +6,19 @@
  * Tickets clip pairs itself (see pairDevice).
  */
 
-const TOKEN_KEY = "wfk_device_token";
+import { resolveKidApiBase } from "../../../packages/shared/scripts/api-base";
 
-export const KID_API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+const TOKEN_KEY = "wfk_device_token";
 
 /**
  * Home-network build (VITE_LOCAL_AUTH=1, served by packages/local on the Mac): no pairing and no
  * device token. The server recognises the iPad by its IP address; an unknown device is refused
  * ("notsetup"). A parent's device picks which child to show ("pickchild"), kept in localStorage
- * and sent as a header.
+ * and sent as a header. The API base is /api in that build. An absolute hosted origin is ignored
+ * so the app cannot fall through to api.wainwright.fun.
  */
 export const LOCAL_AUTH = import.meta.env.VITE_LOCAL_AUTH === "1";
+export const KID_API_URL = resolveKidApiBase(import.meta.env.VITE_API_URL, LOCAL_AUTH);
 const ACT_AS_KEY = "tickets_act_as";
 
 export interface LocalPerson {

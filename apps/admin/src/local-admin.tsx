@@ -6,8 +6,9 @@
  * each have their own app (snacks.wainwright.fun, tickets.wainwright.fun), chores stay on
  * chores.wainwright.fun, and nothing is deployed.
  */
-import { StrictMode, useEffect, useRef } from "react";
+import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { fetchMissingIcons } from "./api";
 import { DevicesPanel } from "./DevicesPanel";
 import { ChildrenPanel, AppsPanel, SystemAppsPanel, WebsitesPanel, ThemesPanel, RestrictionsPanel } from "./TablePanels";
 import { TermDatesPanel } from "./TermDatesPanel";
@@ -24,6 +25,49 @@ const LOCAL_NAV: { id: Tab; label: string }[] = (() => {
   return items;
 })();
 const TOKEN = "home-network";
+
+function FetchMissingIcons() {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const report = await fetchMissingIcons(TOKEN);
+      setMessage(`${report.downloaded} downloaded, ${report.skipped} already saved, ${report.failed} failed.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch icons");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="bg-surface border border-border rounded-xl p-4 mb-6 flex flex-wrap items-center justify-between gap-3">
+      <p className="text-sm text-muted leading-relaxed">
+        Saving an app or website fetches its icon. This downloads any that are still missing.
+      </p>
+      <button
+        type="button"
+        className="inline-flex items-center justify-center min-h-10 px-6 rounded-md text-white text-sm font-semibold cursor-pointer border-none bg-accent transition-colors hover:bg-accent-strong disabled:opacity-50 disabled:cursor-not-allowed"
+        onClick={() => void run()}
+        disabled={busy}
+        aria-busy={busy}
+      >
+        {busy ? "Fetching…" : "Fetch missing icons"}
+      </button>
+      {error && (
+        <div className="w-full p-3 px-4 rounded-md bg-red-50 border border-red-200 text-danger text-sm">{error}</div>
+      )}
+      {message && (
+        <div className="w-full p-3 px-4 rounded-md bg-accent-soft border border-accent/30 text-accent-strong text-sm">{message}</div>
+      )}
+    </div>
+  );
+}
 
 function LocalAdmin() {
   const { tab: routed, navigate } = useRoute(LOCAL_ROUTE_EXTRAS);
@@ -63,6 +107,7 @@ function LocalAdmin() {
       <main className="flex-1 p-4 sm:p-8 max-w-5xl mx-auto w-full">
         {tab === "children" && <ChildrenPanel accessToken={TOKEN} includeSnacks={false} includePairing={false} />}
         {tab === "devices" && <DevicesPanel accessToken={TOKEN} />}
+        {(tab === "apps" || tab === "websites") && <FetchMissingIcons />}
         {tab === "apps" && <AppsPanel accessToken={TOKEN} />}
         {tab === "system-apps" && <SystemAppsPanel accessToken={TOKEN} />}
         {tab === "websites" && <WebsitesPanel accessToken={TOKEN} />}

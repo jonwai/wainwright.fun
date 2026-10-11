@@ -1,14 +1,25 @@
 import type { ResolvedChildConfig } from "../../../packages/shared/scripts/resolve";
 import type { Child } from "../../../packages/shared/scripts/config";
+import { localAssetUrl, resolveKidApiBase } from "../../../packages/shared/scripts/api-base";
 import { getDeviceToken } from "./deviceAuth";
 
-export const KID_API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
 /**
  * The home-network build (served by packages/local on the Mac): the server knows the child from
  * the device's IP address. No pairing, no device token is sent, and the hosted token stored on the
  * iPad is left alone (so moving back to hosted needs nothing on the iPads).
  */
 export const LOCAL_MODE = import.meta.env.VITE_LOCAL_AUTH === "1";
+/**
+ * Empty on the home network: /kid/config and icons are loaded from the page's own host
+ * (wainwright.fun, or a child's hostname once that name points at the Mac). An absolute
+ * VITE_API_URL is ignored in this build so it cannot fall through to api.wainwright.fun.
+ */
+export const KID_API_URL = resolveKidApiBase(import.meta.env.VITE_API_URL, LOCAL_MODE);
+
+/** Icon src. Hosted absolute icon URLs become paths on this server in local mode. */
+export function assetUrl(url: string | null | undefined): string | undefined {
+  return localAssetUrl(url, KID_API_URL, LOCAL_MODE);
+}
 
 export type KidChild = Omit<Child, "date_of_birth" | "restriction_overrides">;
 export type KidConfig = Omit<ResolvedChildConfig, "child" | "restrictions"> & {

@@ -2,13 +2,18 @@
  * wainwright.fun (the iPad launcher) and admin.wainwright.fun on the home network, next to tickets
  * in the same server. Requests are dispatched on Host:
  *
- *   wainwright.fun        the kids' launcher; the child is the device's IP (core.devices), a parent
- *                         may pick a child to look at. /kid/config, /kid/avatar, /kid/profile.
- *   admin.wainwright.fun  the iPad config admin (children, devices, apps, websites, themes,
- *                         restrictions, term dates). Parents' devices only; never a child's device.
- *                         Devices are managed here (core.devices), not in Snacks.
- *   www.wainwright.fun    301 to wainwright.fun (as the hosted CloudFront function).
- *   anything else         tickets (tickets.wainwright.fun, health checks).
+ *   wainwright.fun              the kids' launcher; the child is the device's IP (core.devices), a parent
+ *                               may pick a child to look at. /kid/config, /kid/avatar, /kid/profile.
+ *   {child}.wainwright.fun      the same launcher, when the label is a child in core.people
+ *                               (hannah.wainwright.fun and the other iPad bookmarks). The child
+ *                               is still the device's IP, not the hostname. KIDS_LAUNCHER_HOSTS
+ *                               adds more launcher hosts. api.wainwright.fun and chores stay
+ *                               hosted and are not served here.
+ *   admin.wainwright.fun        the iPad config admin (children, devices, apps, websites, themes,
+ *                               restrictions, term dates). Parents' devices only; never a child's
+ *                               device. Devices are managed here (core.devices), not in Snacks.
+ *   www.wainwright.fun          301 to wainwright.fun (as the hosted CloudFront function).
+ *   anything else               tickets (tickets.wainwright.fun, health checks).
  *
  * An unknown device gets "This device isn't set up" and nothing else, on every host.
  */
@@ -21,6 +26,7 @@ import type pg from "pg";
 import { buildRootConfig, type DbApp, type DbChild, type DbRestriction, type DbTheme, type DbWebsite } from "../../shared/scripts/yaml-generator.js";
 import { HttpError, inTransaction, page, parse, readBody, sendResult, serveFile, type Result } from "./app.js";
 import { ACT_AS_HEADER, clientIp, loadDirectory, normaliseIp, NOT_SET_UP, NOT_SET_UP_HTML, readChoices, resolveViewer, type Viewer } from "./identity.js";
+import { ensureAppIcon, ensureWebsiteIcon, fetchMissingIcons, type IconSubject } from "./icons.js";
 import { isAvatar, loadResolved, loadRows, sha256, signProfile, SigningUnavailable, toKidPayload, unsignedProfile, type Signer } from "./kids.js";
 import { LOGICAL_TABLES, PgDocumentClient, type PgDocumentClientOptions } from "./pg-ddb.js";
 import { tryHandleTermDatesRoute } from "./routes.js";
@@ -28,6 +34,49 @@ import { tryHandleTermDatesRoute } from "./routes.js";
 export const APEX_HOST = "wainwright.fun";
 export const ADMIN_HOST = "admin.wainwright.fun";
 export const WWW_HOST = "www.wainwright.fun";
+
+const CHILD_LABEL = /^[a-z][a-z0-9-]*$/;
+/**
+ * Single-label names that are other apps. A child id never uses one of these, and
+ * api / chores stay on the hosted API (they are not this server).
+ */
+const NOT_A_CHILD_HOST = new Set([
+  "www",
+  "admin",
+  "api",
+  "auth",
+  "snacks",
+  "tickets",
+  "twin",
+  "chores",
+  "kitchen",
+  "household",
+  "bible",
+  "llm",
+]);
+
+/**
+ * `hannah.wainwright.fun` → `hannah`. Null for the apex, for other apps, and for
+ * anything that is not a single label under wainwright.fun. The caller still
+ * checks that the label is a child.
+ */
+export function childLauncherLabel(host: string): string | null {
+  const name = host.toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
+  if (!name.endsWith(`.${APEX_HOST}`)) return null;
+  const label = name.slice(0, -(APEX_HOST.length + 1));
+  if (!CHILD_LABEL.test(label) || NOT_A_CHILD_HOST.has(label)) return null;
+  return label;
+}
+
+/** Comma-separated extra launcher hosts (KIDS_LAUNCHER_HOSTS). */
+export function parseLauncherHosts(value: string | undefined): Set<string> {
+  const hosts = new Set<string>();
+  for (const part of (value ?? "").split(",")) {
+    const host = part.trim().toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
+    if (host) hosts.add(host);
+  }
+  return hosts;
+}
 
 const ICON_PREFIXES = ["app-icons", "website-icons", "system-icons"] as const;
 const PROFILE_TYPE = "application/x-apple-aspen-config";
@@ -49,6 +98,15 @@ export interface LocalSitesOptions {
   log?: (line: string) => void;
   now?: () => Date;
   ddbOptions?: PgDocumentClientOptions;
+  /** Icon downloads. Defaults to global fetch. Tests pass a stub. */
+  fetch?: typeof fetch;
+  /** Notified when an icon download is scheduled, after the save has committed. Tests wait on it. */
+  trackIconFetch?: (done: Promise<void>) => void;
+  /**
+   * Extra hosts that serve the kids launcher (in addition to the apex and
+   * {child}.wainwright.fun). From KIDS_LAUNCHER_HOSTS.
+   */
+  launcherHosts?: ReadonlySet<string>;
 }
 
 function hostOf(headers: Record<string, string>): string {
@@ -128,6 +186,48 @@ export function createLocalSites(options: LocalSitesOptions) {
   const log = options.log ?? (() => {});
   const now = options.now ?? (() => new Date());
 
+  interface PendingIcons {
+    /** Started after a successful commit. The response does not wait. */
+    background: Array<() => Promise<void>>;
+    /** Replaces the response. Runs after commit, so a backfill does not hold the transaction open. */
+    finish?: () => Promise<Result>;
+  }
+
+  function iconDeps() {
+    if (!options.kidsIconsDir) return null;
+    return { iconsDir: options.kidsIconsDir, fetch: options.fetch, log };
+  }
+
+  function scheduleIconJob(run: () => Promise<void>) {
+    const job = Promise.resolve()
+      .then(run)
+      .catch((error) => log(`icon fetch failed: ${(error as Error).message}`));
+    options.trackIconFetch?.(job);
+  }
+
+  function queueIcon(pending: PendingIcons, run: (deps: NonNullable<ReturnType<typeof iconDeps>>) => Promise<unknown>) {
+    const deps = iconDeps();
+    if (!deps) return;
+    pending.background.push(() => run(deps).then(() => undefined));
+  }
+
+  function iconApp(item: Record<string, unknown>): IconSubject {
+    return {
+      name: typeof item.name === "string" ? item.name : undefined,
+      type: typeof item.type === "string" ? item.type : undefined,
+      icon: typeof item.icon === "string" ? item.icon : undefined,
+      app_store_url: typeof item.app_store_url === "string" ? item.app_store_url : undefined,
+    };
+  }
+
+  function iconSite(item: Record<string, unknown>): IconSubject {
+    return {
+      name: typeof item.name === "string" ? item.name : undefined,
+      icon: typeof item.icon === "string" ? item.icon : undefined,
+      url: typeof item.url === "string" ? item.url : undefined,
+    };
+  }
+
   async function viewerFor(db: pg.Pool | pg.PoolClient, headers: Record<string, string>, peer: string | null): Promise<Viewer> {
     const ip = clientIp(peer, headers["x-real-ip"]);
     return resolveViewer(await loadDirectory(db), ip, readChoices({ [ACT_AS_HEADER]: headers[ACT_AS_HEADER] }, headers.cookie));
@@ -189,7 +289,7 @@ export function createLocalSites(options: LocalSitesOptions) {
     return files.filter((name) => !name.startsWith(".")).sort();
   }
 
-  async function adminApi(db: pg.PoolClient, method: string, pathname: string, query: Record<string, string>, headers: Record<string, string>, rawBody: string, viewer: Viewer): Promise<Result> {
+  async function adminApi(db: pg.PoolClient, method: string, pathname: string, query: Record<string, string>, headers: Record<string, string>, rawBody: string, viewer: Viewer, pending: PendingIcons): Promise<Result> {
     const ddb = new PgDocumentClient(db, options.ddbOptions);
     const send = (name: string, input: Record<string, unknown>) => ddb.send({ constructor: { name }, input } as never);
     const scan = async (table: string) => ((await send("ScanCommand", { TableName: table })) as { Items: Record<string, unknown>[] }).Items;
@@ -210,9 +310,16 @@ export function createLocalSites(options: LocalSitesOptions) {
       const response = await tryHandleTermDatesRoute(event as never, method, resource, resourceId, ddb as never);
       return { status: response!.statusCode, body: response!.body ? JSON.parse(response!.body) : null };
     }
-    if (method === "GET" && resource === "icons") {
+    if (method === "GET" && resource === "icons" && !resourceId) {
       const [appIcons, websiteIcons, systemIcons] = await Promise.all(ICON_PREFIXES.map(listIcons));
       return ok({ appIcons, websiteIcons, systemIcons });
+    }
+    if (method === "POST" && resource === "icons" && resourceId === "fetch") {
+      const deps = iconDeps();
+      if (!deps) return ok({ downloaded: 0, skipped: 0, failed: 0 });
+      const [apps, websites] = await Promise.all([scan(LOGICAL_TABLES.apps), scan(LOGICAL_TABLES.websites)]);
+      pending.finish = async () => ({ status: 200, body: await fetchMissingIcons(apps.map(iconApp), websites.map(iconSite), deps) });
+      return ok({ downloaded: 0, skipped: 0, failed: 0 });
     }
     if (method === "GET" && resource === "config") {
       const rows = await loadRows(ddb);
@@ -278,6 +385,7 @@ export function createLocalSites(options: LocalSitesOptions) {
           enabled: input.enabled ?? true,
         };
         await send("PutCommand", { TableName: LOGICAL_TABLES.apps, Item: item });
+        queueIcon(pending, (deps) => ensureAppIcon(iconApp(item), deps));
         return ok(item);
       }
       if (method === "DELETE" && resourceId) {
@@ -301,6 +409,7 @@ export function createLocalSites(options: LocalSitesOptions) {
         };
         if (input.child_subdomain) item.child_subdomain = input.child_subdomain;
         await send("PutCommand", { TableName: LOGICAL_TABLES.websites, Item: item });
+        queueIcon(pending, (deps) => ensureWebsiteIcon(iconSite(item), deps));
         return ok(item);
       }
       if (method === "DELETE" && url) {
@@ -345,17 +454,41 @@ export function createLocalSites(options: LocalSitesOptions) {
   }
 
   // ── Dispatch ────────────────────────────────────────────────────────────────────────────────
-  async function api(req: IncomingMessage, res: ServerResponse, url: URL, headers: Record<string, string>, fn: (db: pg.PoolClient, method: string, pathname: string, query: Record<string, string>, rawBody: string) => Promise<Result>) {
+  async function api(req: IncomingMessage, res: ServerResponse, url: URL, headers: Record<string, string>, fn: (db: pg.PoolClient, method: string, pathname: string, query: Record<string, string>, rawBody: string, pending: PendingIcons) => Promise<Result>) {
     const method = (req.method ?? "GET").toUpperCase();
     const rawBody = await readBody(req);
     const query: Record<string, string> = {};
     url.searchParams.forEach((value, key) => (query[key] = value));
     const pathname = url.pathname.length > 1 && url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
-    sendResult(res, await inTransaction(pool, log, method, pathname, (db) => fn(db, method, pathname, query, rawBody)));
+    const pending: PendingIcons = { background: [] };
+    const result = await inTransaction(pool, log, method, pathname, (db) => fn(db, method, pathname, query, rawBody, pending));
+    // Icon downloads start only after the transaction commits, and a save does not wait for them.
+    if (result.status < 400) {
+      for (const job of pending.background) scheduleIconJob(job);
+      if (pending.finish) {
+        try {
+          sendResult(res, await pending.finish());
+        } catch (error) {
+          log(`icon fetch failed: ${(error as Error).message}`);
+          sendResult(res, { status: 500, body: { error: "Icon fetch failed" } });
+        }
+        return;
+      }
+    }
+    sendResult(res, result);
   }
 
   function html(res: ServerResponse, status: number, body: string) {
     res.writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(body);
+  }
+
+  /** Apex, an extra launcher host, or {child}.wainwright.fun for a real child. */
+  async function servesLauncher(host: string): Promise<boolean> {
+    if (host === APEX_HOST || options.launcherHosts?.has(host)) return true;
+    const label = childLauncherLabel(host);
+    if (!label) return false;
+    const found = await pool.query("SELECT 1 FROM core.people WHERE id = $1 AND role = 'child'", [label]);
+    return (found.rowCount ?? 0) > 0;
   }
 
   /** Icon folders, served on both hosts (the hosted site bucket served them on every host). */
@@ -423,7 +556,7 @@ export function createLocalSites(options: LocalSitesOptions) {
         sendResult(res, { status: 200, body: { username: viewer.me.id, name: viewer.me.name, via: "device", ip: viewer.ip, groups: ["parents"] } });
         return;
       }
-      return api(req, res, url, headers, (db, m, p, q, raw) => adminApi(db, m, p, q, headers, raw, viewer));
+      return api(req, res, url, headers, (db, m, p, q, raw, pending) => adminApi(db, m, p, q, headers, raw, viewer, pending));
     }
     if (await serveIcons(pathname, method, res)) return;
     return serveFile(options.adminDir, pathname.slice(1), method, res, true);
@@ -439,8 +572,8 @@ export function createLocalSites(options: LocalSitesOptions) {
         res.writeHead(301, { location: `https://${APEX_HOST}${url.pathname}${url.search}` }).end();
         return;
       }
-      if (host === APEX_HOST) return await apex(req, res, url, headers);
       if (host === ADMIN_HOST) return await admin(req, res, url, headers);
+      if (await servesLauncher(host)) return await apex(req, res, url, headers);
       return await options.tickets(req, res);
     } catch (error) {
       log(`sites listener error: ${(error as Error).message}`);

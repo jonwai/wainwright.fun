@@ -10,6 +10,8 @@
 import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { extractAppStoreId, websiteIconFilename } from "../../shared/scripts/icons.js";
+import { downloadIconBytes, extractFaviconFromHtml, googleFaviconUrl, lookupAppStoreArtwork } from "../../shared/scripts/icon-fetch.js";
 
 const s3 = new S3Client({});
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -17,95 +19,6 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const BUCKET_NAME = process.env.CONFIG_BUCKET_NAME!;
 const APPS_TABLE = process.env.APPS_TABLE!;
 const WEBSITES_TABLE = process.env.WEBSITES_TABLE!;
-
-// ── Helpers ───────────────────────────────────────────────────────
-
-function extractAppStoreId(url: string): string | null {
-  const match = url.match(/id(\d+)/);
-  return match?.[1] ?? null;
-}
-
-function websiteIconFilename(url: string): string {
-  const hostname = new URL(url).hostname.replace(/[^a-zA-Z0-9.-]/g, "_");
-  return `${hostname}.png`;
-}
-
-function googleFaviconUrl(url: string): string {
-  const hostname = new URL(url).hostname;
-  return `https://www.google.com/s2/favicons?domain=${hostname}&sz=128`;
-}
-
-/**
- * Fetches the website's HTML and extracts the best favicon URL from
- * <link rel="icon"> / <link rel="apple-touch-icon"> tags. Returns null if
- * the page can't be fetched or no icon link is found.
- *
- * Preference order: apple-touch-icon (180×180) > svg > largest png > any icon.
- */
-async function extractFaviconFromHtml(siteUrl: string): Promise<string | null> {
-  try {
-    const response = await fetch(siteUrl, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(8000),
-      headers: { "User-Agent": "wainwright.fun-icon-fetcher/1.0" },
-    });
-    if (!response.ok) return null;
-    const html = await response.text();
-
-    // Parse <link rel="..."> tags with href attributes
-    const linkRegex = /<link\s+[^>]*?>/gi;
-    const icons: { href: string; size: number; isApple: boolean; isSvg: boolean }[] = [];
-
-    let match: RegExpExecArray | null;
-    while ((match = linkRegex.exec(html)) !== null) {
-      const tag = match[0];
-      const relMatch = tag.match(/rel\s*=\s*["']([^"']+)["']/i);
-      if (!relMatch) continue;
-      const rel = relMatch[1].toLowerCase();
-      if (!rel.includes("icon") && !rel.includes("apple-touch")) continue;
-
-      const hrefMatch = tag.match(/href\s*=\s*["']([^"']+)["']/i);
-      if (!hrefMatch) continue;
-      const href = hrefMatch[1];
-
-      let size = 0;
-      const sizeMatch = tag.match(/sizes\s*=\s*["']([^"']+)["']/i);
-      if (sizeMatch) {
-        const sizes = sizeMatch[1].split(/\s+/);
-        for (const s of sizes) {
-          const m = s.match(/^(\d+)x(\d+)$/);
-          if (m) size = Math.max(size, parseInt(m[1], 10));
-        }
-      }
-      icons.push({
-        href,
-        size,
-        isApple: rel.includes("apple-touch"),
-        isSvg: href.endsWith(".svg"),
-      });
-    }
-
-    if (icons.length === 0) return null;
-
-    // Preference: apple-touch-icon > largest PNG > SVG > any
-    const apple = icons.find((i) => i.isApple);
-    if (apple) return resolveUrl(siteUrl, apple.href);
-    const pngs = icons.filter((i) => !i.isSvg).sort((a, b) => b.size - a.size);
-    if (pngs.length > 0) return resolveUrl(siteUrl, pngs[0].href);
-    return resolveUrl(siteUrl, icons[0].href);
-  } catch {
-    return null;
-  }
-}
-
-/** Resolve a possibly-relative href against the page URL. */
-function resolveUrl(pageUrl: string, href: string): string {
-  try {
-    return new URL(href, pageUrl).href;
-  } catch {
-    return href;
-  }
-}
 
 async function s3ObjectExists(key: string): Promise<boolean> {
   try {
@@ -125,21 +38,18 @@ async function downloadAndUploadIcon(
     console.log(`  ✓ ${s3Key} (already exists)`);
     return true;
   }
+  const downloaded = await downloadIconBytes(remoteUrl);
+  if (!downloaded.ok) {
+    if (downloaded.error) console.warn(`  ! Error downloading ${remoteUrl}:`, downloaded.error);
+    else console.warn(`  ! Failed to download ${remoteUrl} (${downloaded.status})`);
+    return false;
+  }
   try {
-    const response = await fetch(remoteUrl, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) {
-      console.warn(`  ! Failed to download ${remoteUrl} (${response.status})`);
-      return false;
-    }
-    const buffer = Buffer.from(await response.arrayBuffer());
     await s3.send(
       new PutObjectCommand({
         Bucket: BUCKET_NAME,
         Key: s3Key,
-        Body: buffer,
+        Body: downloaded.bytes,
         ContentType: contentType,
         CacheControl: "public, max-age=86400",
       })
@@ -177,38 +87,6 @@ async function fetchWebsiteIcon(siteUrl: string, s3Key: string): Promise<boolean
 
   // 2. Fall back to Google's favicon service
   return downloadAndUploadIcon(googleFaviconUrl(siteUrl), s3Key, "image/png");
-}
-
-// ── iTunes artwork lookup ──────────────────────────────────────────
-
-async function lookupArtwork(appStoreIds: string[]): Promise<Map<string, string>> {
-  const artworkById = new Map<string, string>();
-  const batchSize = 20;
-
-  for (let i = 0; i < appStoreIds.length; i += batchSize) {
-    const batch = appStoreIds.slice(i, i + batchSize);
-    const response = await fetch(
-      `https://itunes.apple.com/lookup?id=${batch.join(",")}&country=gb&entity=software`
-    );
-    if (!response.ok) {
-      console.warn(`iTunes lookup failed (${response.status})`);
-      continue;
-    }
-    const data = (await response.json()) as {
-      results?: Array<{
-        trackId: number;
-        artworkUrl512?: string;
-        artworkUrl100?: string;
-      }>;
-    };
-    for (const result of data.results ?? []) {
-      const artwork = result.artworkUrl512 ?? result.artworkUrl100;
-      if (artwork) {
-        artworkById.set(String(result.trackId), artwork);
-      }
-    }
-  }
-  return artworkById;
 }
 
 // ── DynamoDB scan ──────────────────────────────────────────────────
@@ -254,7 +132,7 @@ async function fetchAllIcons(): Promise<void> {
   ];
 
   console.log(`Looking up ${appStoreIds.length} App Store IDs...`);
-  const artworkById = appStoreIds.length > 0 ? await lookupArtwork(appStoreIds) : new Map<string, string>();
+  const artworkById = appStoreIds.length > 0 ? await lookupAppStoreArtwork(appStoreIds) : new Map<string, string>();
 
   for (const app of appsWithStoreUrl) {
     const appStoreId = extractAppStoreId(app.app_store_url as string);
@@ -314,7 +192,7 @@ async function fetchSingleIcon(bundleId: string, appStoreUrl?: string): Promise<
     return;
   }
 
-  const artworkById = await lookupArtwork([appStoreId]);
+  const artworkById = await lookupAppStoreArtwork([appStoreId]);
   const remoteUrl = artworkById.get(appStoreId);
   if (!remoteUrl) {
     console.warn(`No artwork found for ${bundleId} (id${appStoreId})`);

@@ -649,6 +649,19 @@ export interface IconsList {
 
 export const getIcons = (t: string) => apiGet<IconsList>(t, "icons");
 
+export interface IconFetchReport {
+  downloaded: number;
+  skipped: number;
+  failed: number;
+}
+
+/** Local admin: download icons that are not already in the icons directory. */
+export async function fetchMissingIcons(accessToken: string): Promise<IconFetchReport> {
+  const res = await fetchWithAuth(accessToken, "icons/fetch", { method: "POST" });
+  if (!res.ok) throw new Error(`API returned ${res.status}`);
+  return res.json();
+}
+
 export interface PairingSession {
   code: string;
   expires_at: number;

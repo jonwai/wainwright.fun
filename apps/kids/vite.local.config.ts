@@ -3,6 +3,8 @@
 // skips the apps-config plugin (it loads apps.yaml and fetches App Store icons on every build);
 // only its production <head> changes are kept.
 // Build: VITE_LOCAL_AUTH=1 vite build -c vite.local.config.ts
+// VITE_API_URL is forced empty: the launcher calls the host that served the page
+// (the Mac). A hosted API URL in the build environment must not be baked in.
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -29,7 +31,10 @@ export default defineConfig({
   root: __dirname,
   plugins: [head, tailwindcss(), react()],
   publicDir: resolve(__dirname, "../../public"),
-  define: { "import.meta.env.VITE_LOCAL_AUTH": JSON.stringify("1") },
+  define: {
+    "import.meta.env.VITE_LOCAL_AUTH": JSON.stringify("1"),
+    "import.meta.env.VITE_API_URL": JSON.stringify(""),
+  },
   build: {
     outDir: resolve(__dirname, "dist-local"),
     emptyOutDir: true,

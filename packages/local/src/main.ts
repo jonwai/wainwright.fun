@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import pg from "pg";
 import { createLocalTickets } from "./app.js";
-import { createLocalSites } from "./sites.js";
+import { createLocalSites, parseLauncherHosts } from "./sites.js";
 import { applyTicketsMigrations, waitForCore } from "./migrate.js";
 
 const log = (line: string) => console.log(`${new Date().toISOString()} ${line}`);
@@ -21,7 +21,7 @@ const tickets = createLocalTickets({
   iconsDir: ticketIconsDir,
   log,
 });
-// wainwright.fun and admin.wainwright.fun share the server; everything else is tickets.
+// wainwright.fun, each child's hostname and admin.wainwright.fun share the server; everything else is tickets.
 const certFile = process.env.PROFILE_SIGNING_CERT_FILE;
 const keyFile = process.env.PROFILE_SIGNING_KEY_FILE;
 const listener = createLocalSites({
@@ -30,6 +30,7 @@ const listener = createLocalSites({
   kidsDir: process.env.KIDS_STATIC_DIR ?? "apps/kids/dist-local",
   adminDir: process.env.KIDS_ADMIN_DIR ?? "apps/admin/dist-local-admin",
   kidsIconsDir: process.env.KIDS_ICONS_DIR ?? "/data/kids-icons",
+  launcherHosts: parseLauncherHosts(process.env.KIDS_LAUNCHER_HOSTS),
   ticketIconsDir,
   signer: certFile && keyFile ? { certFile, keyFile } : null,
   log,

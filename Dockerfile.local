@@ -17,7 +17,7 @@ RUN cd apps/tickets && VITE_API_URL=/api VITE_LOCAL_AUTH=1 npx vite build --outD
  && mv dist-local-tickets/local-tickets.html dist-local-tickets/index.html \
  && npx vite build -c vite.local-admin.config.ts \
  && mv dist-local-admin/local-admin.html dist-local-admin/index.html \
- && cd ../kids && npx vite build -c vite.local.config.ts \
+ && cd ../kids && VITE_API_URL= VITE_LOCAL_AUTH=1 npx vite build -c vite.local.config.ts \
  && cd ../../packages/local && node build.mjs
 
 FROM node:22-alpine

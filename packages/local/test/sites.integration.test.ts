@@ -7,7 +7,8 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer, request } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
@@ -106,6 +107,44 @@ let scans = "";
 let iconsDir = "";
 let certFile = "";
 const CBEEBIES_ICON = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+const ICON_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+const ICON_JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+const iconFetches: Promise<void>[] = [];
+const iconHolds = new Map<string, Promise<void>>();
+const iconPages = new Map<string, string>();
+const iconFiles = new Map<string, { body: Buffer; type: string }>();
+const iconArtwork = new Map<string, string>();
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+/** Every icon download the server makes. Anything not staged here is a 404, so tests never touch the network. */
+async function mockFetch(input: RequestInfo | URL): Promise<Response> {
+  const url = requestUrl(input);
+  const hold = iconHolds.get(url);
+  if (hold) await hold;
+  if (url.startsWith("https://itunes.apple.com/lookup")) {
+    const ids = new URL(url).searchParams.get("id")?.split(",") ?? [];
+    const results = ids.flatMap((id) => (iconArtwork.has(id) ? [{ trackId: Number(id), artworkUrl512: iconArtwork.get(id) }] : []));
+    return Response.json({ results });
+  }
+  const page = iconPages.get(url);
+  if (page !== undefined) return new Response(page, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+  const file = iconFiles.get(url);
+  if (file) return new Response(file.body, { status: 200, headers: { "content-type": file.type } });
+  return new Response("missing", { status: 404 });
+}
+
+async function settleIcons() {
+  const pending = iconFetches.splice(0, iconFetches.length);
+  await Promise.all(pending);
+}
 
 async function listen(listener: (req: any, res: any) => Promise<void>): Promise<number> {
   const server = createServer((req, res) => void listener(req, res));
@@ -133,12 +172,23 @@ before(async () => {
   execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=Test Profile Signing", "-days", "1", "-keyout", keyFile, "-out", certFile], { stdio: "ignore" });
   const log = process.env.KIDS_TEST_LOG ? (l: string) => console.error(l) : () => {};
   const tickets = createLocalTickets({ pool, log });
-  const options = { pool, tickets, kidsIconsDir: iconsDir, log, now: () => new Date("2026-10-08T12:00:00Z") };
+  const options = {
+    pool,
+    tickets,
+    kidsIconsDir: iconsDir,
+    log,
+    fetch: mockFetch,
+    trackIconFetch: (done: Promise<void>) => iconFetches.push(done),
+    now: () => new Date("2026-10-08T12:00:00Z"),
+    launcherHosts: new Set(["preview.example"]),
+  };
   port = await listen(createLocalSites({ ...options, signer: { certFile, keyFile } }));
   unsignedPort = await listen(createLocalSites({ ...options, signer: null }));
 });
 
 after(async () => {
+  iconHolds.clear();
+  await Promise.allSettled(iconFetches);
   for (const server of servers) server.close();
   await pool?.end();
 });
@@ -151,7 +201,7 @@ interface Reply {
   json: any;
 }
 
-function call(host: string, pathname: string, ip: string | null, init: { method?: string; body?: unknown; headers?: Record<string, string>; port?: number } = {}): Promise<Reply> {
+function call(host: string, pathname: string, ip: string | null, init: { method?: string; body?: unknown; headers?: Record<string, string>; port?: number; timeout?: number } = {}): Promise<Reply> {
   const headers: Record<string, string> = { host, ...(init.headers ?? {}) };
   if (ip) headers["x-real-ip"] = ip;
   const payload = init.body !== undefined ? JSON.stringify(init.body) : undefined;
@@ -170,6 +220,7 @@ function call(host: string, pathname: string, ip: string | null, init: { method?
         resolve({ status: res.statusCode ?? 0, headers: res.headers, text, bytes, json });
       });
     });
+    if (init.timeout) req.setTimeout(init.timeout, () => req.destroy(new Error("timeout")));
     req.on("error", reject);
     req.end(payload);
   });
@@ -442,4 +493,121 @@ test("hosted redirects are kept: www to the apex, the apex admin paths to admin"
   assert.equal(toAdmin.headers.location, "https://admin.wainwright.fun/admin/apps");
   assert.equal((await apex("/website-icons/cbeebies.png", ZOE)).status, 200);
   assert.equal((await call("tickets.wainwright.fun", "/api/health", null)).status, 200, "other hosts stay tickets");
+  assert.equal((await call("api.wainwright.fun", "/api/health", null)).status, 200, "api stays off the launcher");
+  assert.equal((await call("bible.wainwright.fun", "/api/health", null)).status, 200, "other apps stay tickets");
+});
+
+test("a child's hostname is the launcher and reads the local database", { skip: !url }, async () => {
+  const hannahIp = "192.168.1.182";
+  const onHannah = await call("hannah.wainwright.fun", "/kid/config", hannahIp);
+  assert.equal(onHannah.status, 200);
+  assert.equal(onHannah.json.child.subdomain, "hannah", "the hostname is not which child");
+  const onZoeViaHannah = await call("hannah.wainwright.fun", "/kid/config", ZOE);
+  assert.equal(onZoeViaHannah.json.child.subdomain, "zoe");
+  assert.equal((await call("zoe.wainwright.fun", "/website-icons/cbeebies.png", ZOE)).status, 200);
+  assert.equal((await call("hannah.wainwright.fun", "/admin/apps", ZOE)).headers.location, "https://admin.wainwright.fun/admin/apps");
+  assert.equal((await call("preview.example", "/kid/config", ZOE)).json.child.subdomain, "zoe", "KIDS_LAUNCHER_HOSTS");
+  assert.equal((await call("nobody.wainwright.fun", "/api/health", null)).status, 200, "an unknown label stays tickets");
+
+  const site = "https://homeassistant.local/";
+  const put = await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, {
+    method: "PUT",
+    body: { name: "Home Assistant", min_age: 0, enabled: true },
+  });
+  assert.equal(put.status, 200);
+  try {
+    const config = await call("hannah.wainwright.fun", "/kid/config", hannahIp);
+    const row = (config.json.websites as { name: string; url: string; icon_url?: string }[]).find((w) => w.url === site);
+    assert.equal(row?.name, "Home Assistant");
+    assert.equal(row?.icon_url, "/website-icons/homeassistant.local.png");
+  } finally {
+    await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, { method: "DELETE" });
+  }
+});
+
+test("saving a website fetches its icon without blocking, and the icon route serves it", { skip: !url, timeout: 15_000 }, async () => {
+  const site = "https://homeassistant.example/";
+  const file = path.join(iconsDir, "website-icons", "homeassistant.example.png");
+  iconPages.set(site, `<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">`);
+  iconFiles.set("https://homeassistant.example/apple-touch-icon.png", { body: ICON_PNG, type: "image/png" });
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  iconHolds.set(site, gate);
+  try {
+    const put = await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, {
+      method: "PUT",
+      body: { name: "Home Assistant", min_age: 0, enabled: true },
+      timeout: 3000,
+    });
+    assert.equal(put.status, 200);
+    assert.equal(put.json.name, "Home Assistant");
+    assert.equal(existsSync(file), false, "the save returns before the icon download finishes");
+    release();
+    await settleIcons();
+    assert.deepEqual(await readFile(file), ICON_PNG);
+    const icon = await apex("/website-icons/homeassistant.example.png", ZOE);
+    assert.equal(icon.status, 200);
+    assert.equal(icon.headers["content-type"], "image/png");
+    assert.ok(icon.bytes.equals(ICON_PNG));
+  } finally {
+    release();
+    iconHolds.delete(site);
+    await settleIcons();
+    await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, { method: "DELETE" });
+  }
+});
+
+test("a failed icon fetch does not fail the save", { skip: !url }, async () => {
+  const site = "https://broken.example/";
+  const put = await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, { method: "PUT", body: { name: "Broken" } });
+  assert.equal(put.status, 200);
+  await settleIcons();
+  assert.equal(existsSync(path.join(iconsDir, "website-icons", "broken.example.png")), false);
+  await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, { method: "DELETE" });
+});
+
+test("saving an app fetches App Store artwork into app-icons/{id}.jpg", { skip: !url }, async () => {
+  iconArtwork.set("999", "https://artwork.test/999.jpg");
+  iconFiles.set("https://artwork.test/999.jpg", { body: ICON_JPEG, type: "image/jpeg" });
+  const put = await admin("/api/apps/com.example.home", MAC, {
+    method: "PUT",
+    body: { name: "Home", app_store_url: "https://apps.apple.com/gb/app/home/id999", min_age: 0 },
+  });
+  assert.equal(put.status, 200);
+  await settleIcons();
+  const file = path.join(iconsDir, "app-icons", "999.jpg");
+  assert.deepEqual(await readFile(file), ICON_JPEG);
+  const icon = await apex("/app-icons/999.jpg", ZOE);
+  assert.equal(icon.status, 200);
+  assert.equal(icon.headers["content-type"], "image/jpeg");
+  assert.ok(icon.bytes.equals(ICON_JPEG));
+  await admin("/api/apps/com.example.home", MAC, { method: "DELETE" });
+});
+
+test("POST /api/icons/fetch backfills a missing icon and leaves an existing one", { skip: !url }, async () => {
+  assert.equal((await admin("/api/icons/fetch", ZOE, { method: "POST" })).status, 403);
+  const site = "https://backfill.example/";
+  iconPages.set(site, `<link rel="icon" href="/favicon.png" sizes="128x128">`);
+  iconFiles.set("https://backfill.example/favicon.png", { body: ICON_PNG, type: "image/png" });
+  const put = await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, { method: "PUT", body: { name: "Backfill" } });
+  assert.equal(put.status, 200);
+  await settleIcons();
+  const file = path.join(iconsDir, "website-icons", "backfill.example.png");
+  const cbeebies = path.join(iconsDir, "website-icons", "cbeebies.png");
+  const maths = path.join(iconsDir, "app-icons", "111.jpg");
+  const cbeebiesBefore = await readFile(cbeebies);
+  const mathsBefore = await readFile(maths);
+  await unlink(file);
+  const report = await admin("/api/icons/fetch", MAC, { method: "POST" });
+  assert.equal(report.status, 200);
+  assert.ok(report.json.downloaded >= 1, JSON.stringify(report.json));
+  assert.deepEqual(await readFile(file), ICON_PNG);
+  assert.deepEqual(await readFile(cbeebies), cbeebiesBefore);
+  assert.deepEqual(await readFile(maths), mathsBefore);
+  const icon = await apex("/website-icons/backfill.example.png", ZOE);
+  assert.equal(icon.status, 200);
+  assert.equal(icon.headers["content-type"], "image/png");
+  await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, { method: "DELETE" });
 });

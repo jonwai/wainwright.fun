@@ -2,11 +2,16 @@
  *
  * Web clips on iOS have isolated storage, so the twin clip pairs separately:
  * POST /pair {code} → {token} → localStorage `wfk_device_token`.
- * All kid API calls go to https://api.wainwright.fun (VITE_API_URL or dev proxy).
+ * The hosted build calls https://api.wainwright.fun (that API stays hosted; override
+ * with VITE_API_URL). A home-network build (VITE_LOCAL_AUTH=1) uses the page origin,
+ * or a relative VITE_API_URL, and never the hosted API.
  */
+import { resolveKidApiBase } from '../../../packages/shared/scripts/api-base';
 
 const TOKEN_KEY = 'wfk_device_token';
-export const KID_API_URL = (import.meta.env.VITE_API_URL ?? 'https://api.wainwright.fun').replace(/\/$/, '');
+const LOCAL_MODE = import.meta.env.VITE_LOCAL_AUTH === '1';
+const configured = resolveKidApiBase(import.meta.env.VITE_API_URL, LOCAL_MODE);
+export const KID_API_URL = configured || (LOCAL_MODE ? '' : 'https://api.wainwright.fun');
 
 export function getDeviceToken() {
   try {

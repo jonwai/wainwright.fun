@@ -1,3 +1,4 @@
+import { kidDevProxy } from "../../packages/shared/scripts/api-base";
 import { defineConfig, type Plugin } from "vite";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -125,8 +126,8 @@ export default defineConfig({
     port: 5177,
     host: true, // phones/tablets on the LAN
     proxy: {
-      "/pair": { target: "https://api.wainwright.fun", changeOrigin: true },
-      "/kid": { target: "https://api.wainwright.fun", changeOrigin: true },
+      "/pair": kidDevProxy(),
+      "/kid": kidDevProxy(),
     },
   },
   plugins: [hueLightsApi()],
