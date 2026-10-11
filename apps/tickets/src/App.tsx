@@ -122,7 +122,8 @@ export default function App() {
       try {
         await redeemReward(reward.reward_id);
         setJustRedeemed(reward);
-        setRewardsState(await fetchRewardsState());
+        const [nextRewards] = await Promise.all([fetchRewardsState(), load()]);
+        setRewardsState(nextRewards);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Could not swap your tickets";
@@ -137,7 +138,7 @@ export default function App() {
         setBusyId(null);
       }
     },
-    [busyId]
+    [busyId, load]
   );
 
   const refund = useCallback(async () => {
@@ -146,7 +147,8 @@ export default function App() {
     setError(null);
     try {
       await refundReward();
-      setRewardsState(await fetchRewardsState());
+      const [nextRewards] = await Promise.all([fetchRewardsState(), load()]);
+      setRewardsState(nextRewards);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Could not refund that reward";
@@ -159,7 +161,7 @@ export default function App() {
     } finally {
       setBusyId(null);
     }
-  }, [busyId]);
+  }, [busyId, load]);
 
   const complete = useCallback(
     async (task: KidTask) => {
@@ -357,6 +359,7 @@ export default function App() {
     );
   }
 
+  const ticketsLeft = state.spendable_tickets;
   const totalTickets = state.total_tickets;
 
   return (
@@ -382,10 +385,11 @@ export default function App() {
         )}
         <p className="text-muted text-lg">Do your jobs to earn tickets</p>
         <div className="mt-3 inline-flex items-baseline gap-2 bg-accent-soft rounded-full px-5 py-2">
-          <span className="text-2xl font-extrabold text-accent-strong">{totalTickets}</span>
+          <span className="text-2xl font-extrabold text-accent-strong">{ticketsLeft}</span>
           <span className="text-sm text-muted">
-            ticket{totalTickets === 1 ? "" : "s"} earned
+            ticket{ticketsLeft === 1 ? "" : "s"} left
           </span>
+          <span className="text-xs text-muted">· {totalTickets} earned</span>
         </div>
       </header>
 

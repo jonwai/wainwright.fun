@@ -19,7 +19,8 @@
  *     child+task.
  *
  * Kid routes (device token, same as the main app and Snacks):
- *   GET  /kid/tasks                       → my tasks + completion state
+ *   GET  /kid/tasks                       → my tasks, total earned, and
+ *                                           tickets left (earned − redeemed)
  *   GET  /kid/tasks/history               → my completion log
  *   POST /kid/tasks/{taskId}/complete    → mark complete (earns tickets)
  *   POST /kid/tasks/{taskId}/undo        → undo my latest completion
@@ -895,10 +896,11 @@ async function handleKidTasks(
   const auth = await resolveKid(event, ddb);
   if (isKidDenied(auth)) return auth;
 
-  const [tasks, board, completions] = await Promise.all([
+  const [tasks, board, completions, redemptions] = await Promise.all([
     listTasks(ddb),
     listBoardEntries(ddb),
     completionsForChild(ddb, auth.subdomain),
+    redemptionsForChild(ddb, auth.subdomain),
   ]);
 
   const completionsByTask = new Map<string, TaskCompletionEvent[]>();
@@ -967,6 +969,9 @@ async function handleKidTasks(
   return json(event, 200, {
     tasks: mine,
     total_tickets: totalTickets,
+    // Same balance the rewards screen spends against: every cash-in counts,
+    // pending or claimed, so the header matches what the child can still use.
+    spendable_tickets: spendableTickets(completions, redemptions),
   });
 }
 

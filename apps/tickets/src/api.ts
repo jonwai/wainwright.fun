@@ -73,7 +73,10 @@ export interface KidTask {
 
 export interface TasksState {
   tasks: KidTask[];
+  /** All-time tickets earned (completions and bonus awards). */
   total_tickets: number;
+  /** Tickets still left: earned minus every cash-in, pending or claimed. */
+  spendable_tickets: number;
 }
 
 export interface TaskHistoryEntry {

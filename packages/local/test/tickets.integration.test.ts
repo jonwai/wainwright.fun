@@ -244,6 +244,7 @@ test("a parent's device is admin and can act as a child", { skip: !url }, async 
 test("a child completes, undoes, redeems and refunds; balances hold", { skip: !url }, async () => {
   const before = await call("/api/kid/tasks", LYDIA);
   assert.equal(before.body.total_tickets, 1);
+  assert.equal(before.body.spendable_tickets, before.body.total_tickets, "no cash-ins yet, so left equals earned");
   const done = await call("/api/kid/tasks/feed-cat/complete", LYDIA, { method: "POST" });
   assert.equal(done.status, 200);
   assert.equal(done.body.total_tickets, 2);
@@ -260,9 +261,13 @@ test("a child completes, undoes, redeems and refunds; balances hold", { skip: !u
   const redeemed = await call("/api/kid/rewards/screen-time/redeem", LYDIA, { method: "POST" });
   assert.equal(redeemed.status, 200);
   assert.equal(redeemed.body.spendable_tickets, 1);
+  const tasksAfterRedeem = await call("/api/kid/tasks", LYDIA);
+  assert.equal(tasksAfterRedeem.body.total_tickets, 2);
+  assert.equal(tasksAfterRedeem.body.spendable_tickets, 1, "jobs payload shows tickets left after cash-in");
   const refund = await call("/api/kid/rewards/refund", LYDIA, { method: "POST" });
   assert.equal(refund.status, 200);
   assert.equal(refund.body.spendable_tickets, 2);
+  assert.equal((await call("/api/kid/tasks", LYDIA)).body.spendable_tickets, 2);
 });
 
 test("two redeems at once cannot overspend", { skip: !url }, async () => {

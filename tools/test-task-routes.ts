@@ -228,6 +228,7 @@ assert(
 );
 assert(stateBody.tasks[0].emoji === "🛏️", "kid payload carries emoji");
 assert(stateBody.total_tickets === 0, "no tickets yet");
+assert(stateBody.spendable_tickets === 0, "nothing left to spend yet");
 
 // 3. Kid completes it.
 const done = must(
@@ -264,6 +265,7 @@ const state2Body = JSON.parse(state2.body);
 assert(state2Body.tasks[0].completed_count === 1, "completed_count is 1");
 assert(state2Body.tasks[0].completed_by === "parent", "completed_by parent");
 assert(state2Body.total_tickets === 2, "total tickets 2");
+assert(state2Body.spendable_tickets === 2, "tickets left equals earned before any cash-in");
 
 // 7. History.
 const history = must(
@@ -351,6 +353,14 @@ assert(rewardsBody2.redemptions.length === 1, "kid sees one redemption");
 assert(rewardsBody2.redemptions[0].status === "pending", "redemption is pending");
 assert(rewardsBody2.spendable_tickets === 1, "spendable is 1");
 
+const tasksAfterRedeem = must(
+  await tryHandleTaskRoute(event("GET", "/kid/tasks") as never, "GET", "kid", "tasks", ddb),
+  "kid GET tasks after redeem"
+);
+const tasksAfterRedeemBody = JSON.parse(tasksAfterRedeem.body);
+assert(tasksAfterRedeemBody.total_tickets === 6, "earned stays 6 after cashing in");
+assert(tasksAfterRedeemBody.spendable_tickets === 1, "tickets left is 1 (6 earned − 5 cashed in)");
+
 // 16. Kid refunds it — tickets come back.
 const refunded = must(
   await tryHandleTaskRoute(event("POST", "/kid/rewards/refund", {}) as never, "POST", "kid", "rewards/refund", ddb),
@@ -358,6 +368,13 @@ const refunded = must(
 );
 assert(refunded.statusCode === 200, "kid refund returns 200");
 assert(JSON.parse(refunded.body).spendable_tickets === 6, "spendable back to 6");
+const tasksAfterRefund = JSON.parse(
+  must(
+    await tryHandleTaskRoute(event("GET", "/kid/tasks") as never, "GET", "kid", "tasks", ddb),
+    "kid GET tasks after refund"
+  ).body
+);
+assert(tasksAfterRefund.spendable_tickets === 6, "tickets left is back to 6 after refund");
 
 // 17. Kid redeems again, then a parent CLAIMS it.
 await tryHandleTaskRoute(event("POST", "/kid/rewards/sticker/redeem", {}) as never, "POST", "kid", "rewards/sticker/redeem", ddb);
