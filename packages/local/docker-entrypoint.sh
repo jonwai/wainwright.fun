@@ -8,6 +8,9 @@ if [ "$(id -u)" = 0 ]; then
     install -o node -g node -m 0400 /run/secrets/profile_signing_key /run/profile-signing/key.pem
   fi
   chown node:node /data/ticket-icons
+  # Launcher icons are fetched on save and by the admin backfill, so node must own them.
+  mkdir -p /data/kids-icons/app-icons /data/kids-icons/website-icons
+  chown -R node:node /data/kids-icons
   exec su-exec node "$0" "$@"
 fi
 # Photos as in the hosted site bucket, without overwriting uploads.

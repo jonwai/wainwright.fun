@@ -44,7 +44,7 @@ COPY --from=build /app/apps/admin/dist-local-admin ./kids-admin
 # Copied into the volume on start without overwriting uploads.
 COPY --from=build /app/public/ticket-icons ./seed-icons
 COPY --from=build /app/packages/local/docker-entrypoint.sh ./docker-entrypoint.sh
-RUN mkdir -p /data/ticket-icons && chown node:node /data/ticket-icons
+RUN mkdir -p /data/ticket-icons /data/kids-icons && chown node:node /data/ticket-icons /data/kids-icons
 # Runs as root only to pass the signing files to node, then as node (see docker-entrypoint.sh).
 EXPOSE 43127
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD wget -qO- http://127.0.0.1:43127/api/health >/dev/null || exit 1
