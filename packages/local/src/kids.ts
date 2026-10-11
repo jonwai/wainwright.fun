@@ -6,8 +6,8 @@
  * restrictions are exactly what hosted would serve for the same data.
  *
  * Differences from hosted, on purpose:
- *   - Web Clip icons are read from the icons directory (a copy of the hosted site bucket's
- *     website-icons/), not S3.
+ *   - Web Clip icons are read from the icons directory (seeded from the hosted site bucket),
+ *     not S3. Saving an app or website fetches a missing icon into that directory.
  *   - The profile is signed with the cert and key files on the Mac. If they are missing or
  *     openssl fails, NO profile is served (hosted fell back to an unsigned one).
  *   - Every profile handed out is recorded in kids.profile_downloads.
