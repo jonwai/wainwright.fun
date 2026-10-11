@@ -201,19 +201,6 @@ importers:
         specifier: ^6.0.5
         version: 6.4.3(@types/node@22.20.5)(tsx@4.23.15)
 
-  apps/twin:
-    dependencies:
-      three:
-        specifier: ^0.170.0
-        version: 0.170.0
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.20.5
-      vite:
-        specifier: ^6.0.5
-        version: 6.4.3(@types/node@22.20.5)(tsx@4.23.15)
-
   packages/infra:
     dependencies:
       '@aws-sdk/client-cloudfront':
@@ -2878,10 +2865,6 @@ packages:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
     dev: true
-
-  /three@0.170.0:
-    resolution: {integrity: sha512-FQK+LEpYc0fBD+J8g6oSEyyNzjp+Q7Ks1C568WWaoMRLW+TkNNWmenWeGgJjV105Gd+p/2ql1ZcjYvNiPZBhuQ==}
-    dev: false
 
   /tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}

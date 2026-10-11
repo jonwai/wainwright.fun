@@ -25,7 +25,6 @@ apps/
   snacks/                ← snack-budget SPA                  → snacks.wainwright.fun
   tickets/               ← reward-tickets SPA                → tickets.wainwright.fun
   chores/                ← chores SPA                        → chores.wainwright.fun
-  twin/                  ← 3D home twin SPA                  → twin.wainwright.fun
 packages/
   shared/                ← config/resolve/profile logic + apps.yaml
   infra/                 ← CDK stacks, Lambda handlers, ops scripts
