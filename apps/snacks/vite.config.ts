@@ -1,3 +1,4 @@
+import { kidDevProxy } from "../../packages/shared/scripts/api-base.ts";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -19,8 +20,8 @@ export default defineConfig({
     port: 5175,
     open: true,
     proxy: {
-      "/pair": { target: "https://api.wainwright.fun", changeOrigin: true },
-      "/kid": { target: "https://api.wainwright.fun", changeOrigin: true },
+      "/pair": kidDevProxy(),
+      "/kid": kidDevProxy(),
     },
   },
 });

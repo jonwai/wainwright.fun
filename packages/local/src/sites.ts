@@ -2,13 +2,18 @@
  * wainwright.fun (the iPad launcher) and admin.wainwright.fun on the home network, next to tickets
  * in the same server. Requests are dispatched on Host:
  *
- *   wainwright.fun        the kids' launcher; the child is the device's IP (core.devices), a parent
- *                         may pick a child to look at. /kid/config, /kid/avatar, /kid/profile.
- *   admin.wainwright.fun  the iPad config admin (children, devices, apps, websites, themes,
- *                         restrictions, term dates). Parents' devices only; never a child's device.
- *                         Devices are managed here (core.devices), not in Snacks.
- *   www.wainwright.fun    301 to wainwright.fun (as the hosted CloudFront function).
- *   anything else         tickets (tickets.wainwright.fun, health checks).
+ *   wainwright.fun              the kids' launcher; the child is the device's IP (core.devices), a parent
+ *                               may pick a child to look at. /kid/config, /kid/avatar, /kid/profile.
+ *   {child}.wainwright.fun      the same launcher, when the label is a child in core.people
+ *                               (hannah.wainwright.fun and the other iPad bookmarks). The child
+ *                               is still the device's IP, not the hostname. KIDS_LAUNCHER_HOSTS
+ *                               adds more launcher hosts. api.wainwright.fun and chores stay
+ *                               hosted and are not served here.
+ *   admin.wainwright.fun        the iPad config admin (children, devices, apps, websites, themes,
+ *                               restrictions, term dates). Parents' devices only; never a child's
+ *                               device. Devices are managed here (core.devices), not in Snacks.
+ *   www.wainwright.fun          301 to wainwright.fun (as the hosted CloudFront function).
+ *   anything else               tickets (tickets.wainwright.fun, health checks).
  *
  * An unknown device gets "This device isn't set up" and nothing else, on every host.
  */
@@ -29,6 +34,49 @@ import { tryHandleTermDatesRoute } from "./routes.js";
 export const APEX_HOST = "wainwright.fun";
 export const ADMIN_HOST = "admin.wainwright.fun";
 export const WWW_HOST = "www.wainwright.fun";
+
+const CHILD_LABEL = /^[a-z][a-z0-9-]*$/;
+/**
+ * Single-label names that are other apps. A child id never uses one of these, and
+ * api / chores stay on the hosted API (they are not this server).
+ */
+const NOT_A_CHILD_HOST = new Set([
+  "www",
+  "admin",
+  "api",
+  "auth",
+  "snacks",
+  "tickets",
+  "twin",
+  "chores",
+  "kitchen",
+  "household",
+  "bible",
+  "llm",
+]);
+
+/**
+ * `hannah.wainwright.fun` → `hannah`. Null for the apex, for other apps, and for
+ * anything that is not a single label under wainwright.fun. The caller still
+ * checks that the label is a child.
+ */
+export function childLauncherLabel(host: string): string | null {
+  const name = host.toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
+  if (!name.endsWith(`.${APEX_HOST}`)) return null;
+  const label = name.slice(0, -(APEX_HOST.length + 1));
+  if (!CHILD_LABEL.test(label) || NOT_A_CHILD_HOST.has(label)) return null;
+  return label;
+}
+
+/** Comma-separated extra launcher hosts (KIDS_LAUNCHER_HOSTS). */
+export function parseLauncherHosts(value: string | undefined): Set<string> {
+  const hosts = new Set<string>();
+  for (const part of (value ?? "").split(",")) {
+    const host = part.trim().toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
+    if (host) hosts.add(host);
+  }
+  return hosts;
+}
 
 const ICON_PREFIXES = ["app-icons", "website-icons", "system-icons"] as const;
 const PROFILE_TYPE = "application/x-apple-aspen-config";
@@ -54,6 +102,11 @@ export interface LocalSitesOptions {
   fetch?: typeof fetch;
   /** Notified when an icon download is scheduled, after the save has committed. Tests wait on it. */
   trackIconFetch?: (done: Promise<void>) => void;
+  /**
+   * Extra hosts that serve the kids launcher (in addition to the apex and
+   * {child}.wainwright.fun). From KIDS_LAUNCHER_HOSTS.
+   */
+  launcherHosts?: ReadonlySet<string>;
 }
 
 function hostOf(headers: Record<string, string>): string {
@@ -429,6 +482,15 @@ export function createLocalSites(options: LocalSitesOptions) {
     res.writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(body);
   }
 
+  /** Apex, an extra launcher host, or {child}.wainwright.fun for a real child. */
+  async function servesLauncher(host: string): Promise<boolean> {
+    if (host === APEX_HOST || options.launcherHosts?.has(host)) return true;
+    const label = childLauncherLabel(host);
+    if (!label) return false;
+    const found = await pool.query("SELECT 1 FROM core.people WHERE id = $1 AND role = 'child'", [label]);
+    return (found.rowCount ?? 0) > 0;
+  }
+
   /** Icon folders, served on both hosts (the hosted site bucket served them on every host). */
   async function serveIcons(pathname: string, method: string, res: ServerResponse): Promise<boolean> {
     for (const prefix of ICON_PREFIXES) {
@@ -510,8 +572,8 @@ export function createLocalSites(options: LocalSitesOptions) {
         res.writeHead(301, { location: `https://${APEX_HOST}${url.pathname}${url.search}` }).end();
         return;
       }
-      if (host === APEX_HOST) return await apex(req, res, url, headers);
       if (host === ADMIN_HOST) return await admin(req, res, url, headers);
+      if (await servesLauncher(host)) return await apex(req, res, url, headers);
       return await options.tickets(req, res);
     } catch (error) {
       log(`sites listener error: ${(error as Error).message}`);

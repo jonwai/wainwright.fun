@@ -1,4 +1,5 @@
 import type { UnifiedItem } from "../../../packages/shared/scripts/resolve";
+import { assetUrl } from "../lib/kidApi";
 import { AppListItem } from "./BlockedAppCard";
 
 interface UnifiedCardProps {
@@ -10,13 +11,14 @@ function CardIcon({ item }: Pick<UnifiedCardProps, "item">) {
   // System apps may have a named icon (e.g. "settings") or an icon_url
   const systemIconSrc =
     item.kind === "system"
-      ? item.icon_url ?? (item.icon ? `/system-icons/${item.icon}.png` : undefined)
+      ? assetUrl(item.icon_url) ?? (item.icon ? assetUrl(`/system-icons/${item.icon}.png`) : undefined)
       : undefined;
 
-  if (item.icon_url) {
+  const iconSrc = assetUrl(item.icon_url);
+  if (iconSrc) {
     return (
       <img
-        src={item.icon_url}
+        src={iconSrc}
         alt=""
         className="app-icon-image"
         loading="lazy"

@@ -180,6 +180,7 @@ before(async () => {
     fetch: mockFetch,
     trackIconFetch: (done: Promise<void>) => iconFetches.push(done),
     now: () => new Date("2026-10-08T12:00:00Z"),
+    launcherHosts: new Set(["preview.example"]),
   };
   port = await listen(createLocalSites({ ...options, signer: { certFile, keyFile } }));
   unsignedPort = await listen(createLocalSites({ ...options, signer: null }));
@@ -492,6 +493,36 @@ test("hosted redirects are kept: www to the apex, the apex admin paths to admin"
   assert.equal(toAdmin.headers.location, "https://admin.wainwright.fun/admin/apps");
   assert.equal((await apex("/website-icons/cbeebies.png", ZOE)).status, 200);
   assert.equal((await call("tickets.wainwright.fun", "/api/health", null)).status, 200, "other hosts stay tickets");
+  assert.equal((await call("api.wainwright.fun", "/api/health", null)).status, 200, "api stays off the launcher");
+  assert.equal((await call("bible.wainwright.fun", "/api/health", null)).status, 200, "other apps stay tickets");
+});
+
+test("a child's hostname is the launcher and reads the local database", { skip: !url }, async () => {
+  const hannahIp = "192.168.1.182";
+  const onHannah = await call("hannah.wainwright.fun", "/kid/config", hannahIp);
+  assert.equal(onHannah.status, 200);
+  assert.equal(onHannah.json.child.subdomain, "hannah", "the hostname is not which child");
+  const onZoeViaHannah = await call("hannah.wainwright.fun", "/kid/config", ZOE);
+  assert.equal(onZoeViaHannah.json.child.subdomain, "zoe");
+  assert.equal((await call("zoe.wainwright.fun", "/website-icons/cbeebies.png", ZOE)).status, 200);
+  assert.equal((await call("hannah.wainwright.fun", "/admin/apps", ZOE)).headers.location, "https://admin.wainwright.fun/admin/apps");
+  assert.equal((await call("preview.example", "/kid/config", ZOE)).json.child.subdomain, "zoe", "KIDS_LAUNCHER_HOSTS");
+  assert.equal((await call("nobody.wainwright.fun", "/api/health", null)).status, 200, "an unknown label stays tickets");
+
+  const site = "https://homeassistant.local/";
+  const put = await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, {
+    method: "PUT",
+    body: { name: "Home Assistant", min_age: 0, enabled: true },
+  });
+  assert.equal(put.status, 200);
+  try {
+    const config = await call("hannah.wainwright.fun", "/kid/config", hannahIp);
+    const row = (config.json.websites as { name: string; url: string; icon_url?: string }[]).find((w) => w.url === site);
+    assert.equal(row?.name, "Home Assistant");
+    assert.equal(row?.icon_url, "/website-icons/homeassistant.local.png");
+  } finally {
+    await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, { method: "DELETE" });
+  }
 });
 
 test("saving a website fetches its icon without blocking, and the icon route serves it", { skip: !url, timeout: 15_000 }, async () => {

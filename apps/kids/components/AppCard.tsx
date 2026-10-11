@@ -1,4 +1,5 @@
 import type { AppEntry } from "../../../packages/shared/scripts/config";
+import { assetUrl } from "../lib/kidApi";
 import { AppListItem } from "./BlockedAppCard";
 
 interface AppCardProps {
@@ -7,10 +8,11 @@ interface AppCardProps {
 }
 
 function AppIcon({ app }: Pick<AppCardProps, "app">) {
-  if (app.icon_url) {
+  const iconSrc = assetUrl(app.icon_url);
+  if (iconSrc) {
     return (
       <img
-        src={app.icon_url}
+        src={iconSrc}
         alt=""
         className="app-icon-image"
         loading="lazy"

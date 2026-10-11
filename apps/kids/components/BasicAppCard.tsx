@@ -1,4 +1,5 @@
 import type { SystemApp } from "../../../packages/shared/scripts/config";
+import { assetUrl } from "../lib/kidApi";
 import { AppListItem } from "./BlockedAppCard";
 
 interface BasicAppCardProps {
@@ -7,8 +8,7 @@ interface BasicAppCardProps {
 }
 
 function AppIcon({ app }: Pick<BasicAppCardProps, "app">) {
-  const iconSrc =
-    app.icon_url ?? (app.icon ? `/system-icons/${app.icon}.png` : undefined);
+  const iconSrc = assetUrl(app.icon_url) ?? (app.icon ? assetUrl(`/system-icons/${app.icon}.png`) : undefined);
 
   if (iconSrc) {
     return (

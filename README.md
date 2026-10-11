@@ -160,7 +160,7 @@ Copy [`cdk.context.example.json`](packages/infra/cdk.context.example.json) to `c
 
 CDK creates a wildcard ACM certificate (`*.wainwright.fun`), a CloudFront distribution with host routing, and a Route 53 wildcard A record.
 
-Each child is paired from admin. Former child subdomains (`hannah.wainwright.fun`) still serve the same kids SPA so old iPad bookmarks keep working until profiles are reinstalled.
+Each child is paired from admin. Former child subdomains (`hannah.wainwright.fun`) still serve the same kids SPA so old iPad bookmarks keep working until profiles are reinstalled. On the home network those names are the local launcher (`packages/local`) once their DNS records point at the Mac instead of CloudFront. `api.wainwright.fun` and `chores.wainwright.fun` stay hosted.
 
 ## Installing the profile on an iPad
 
