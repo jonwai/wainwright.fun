@@ -6,7 +6,7 @@
  * with VITE_API_URL). A home-network build (VITE_LOCAL_AUTH=1) uses the page origin,
  * or a relative VITE_API_URL, and never the hosted API.
  */
-import { resolveKidApiBase } from '../../../packages/shared/scripts/api-base.ts';
+import { resolveKidApiBase } from '../../../packages/shared/scripts/api-base';
 
 const TOKEN_KEY = 'wfk_device_token';
 const LOCAL_MODE = import.meta.env.VITE_LOCAL_AUTH === '1';

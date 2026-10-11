@@ -1,4 +1,4 @@
-import { kidDevProxy } from "../../packages/shared/scripts/api-base.ts";
+import { kidDevProxy } from "../../packages/shared/scripts/api-base";
 import { defineConfig, type Plugin } from "vite";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { kidDevProxy, localAssetUrl, resolveKidApiBase } from "./api-base.ts";
+import { kidDevProxy, localAssetUrl, resolveKidApiBase } from "./api-base";
 
 test("local mode ignores an absolute hosted API origin", () => {
   assert.equal(resolveKidApiBase("https://api.wainwright.fun", true), "");
