@@ -181,7 +181,7 @@ export function createLocalTickets(options: LocalTicketsOptions) {
     // Household owns chore writes (and the tickets.award lock inside them). Do not take
     // tickets.lock() here: the HTTP call would deadlock on that same lock.
     if (kid && (resourceId === "household-chores" || resourceId.startsWith("household-chores/"))) {
-      return handleHouseholdChores(db, method, resourceId, viewer.child!.id, viewer.ip, household, log);
+      return handleHouseholdChores(method, resourceId, viewer.child!.id, household, log);
     }
 
     if (method !== "GET") await db.query(TICKETS_LOCK_SQL);

@@ -1,6 +1,7 @@
 /**
- * House chores shown in Tickets, with claim / done / undo going through a Household
- * test double (so tickets.award stays in that transaction).
+ * House chores shown in Tickets. The list and claim / done / undo go through a
+ * Household stand-in that speaks the merged kid API. Tickets does not read
+ * household.* and does not award tickets itself.
  *   TICKETS_TEST_DATABASE_URL=postgres://wainsburys:wainsburys@127.0.0.1:5432/tickets_local_test pnpm --filter @wainwright/local test
  */
 import assert from "node:assert/strict";
@@ -8,8 +9,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import pg from "pg";
-import { choreTicketsNow } from "../src/household-chores.ts";
-import { seedHousehold, seedHouseholdMinimal } from "./household-demo.ts";
+import { normalizeHouseholdList } from "../src/household-chores.ts";
 import { startHouseholdStub } from "./household-stub.ts";
 
 const url = process.env.TICKETS_TEST_DATABASE_URL;
@@ -41,30 +41,74 @@ const CORE = `
   INSERT INTO core.term_dates VALUES ('2026-2027', 0, 'Autumn', '2026-08-24', '2026-12-18', '2026-10-19', '2026-10-23');
 `;
 
-test("choreTicketsNow is zero just after a completion and stops at twice the area-adjusted base", () => {
-  assert.equal(choreTicketsNow({ base_tickets: 4, reset_days: 7, target_type: "room" }, null, 5.7), 2);
-  assert.equal(choreTicketsNow({ base_tickets: 3, reset_days: 7, target_type: "room" }, null, 14.3), 4);
-  assert.equal(choreTicketsNow({ base_tickets: 5, reset_days: 14, target_type: "fixture" }, new Date().toISOString(), null), 0);
-  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-  assert.equal(choreTicketsNow({ base_tickets: 4, reset_days: 7, target_type: "room" }, weekAgo, 5.7), 2);
-  const overdue = new Date(Date.now() - 21 * 86_400_000).toISOString();
-  assert.equal(choreTicketsNow({ base_tickets: 4, reset_days: 7, target_type: "room" }, overdue, 5.7), 4);
+test("the kid list copies Household's tickets and held_by, and ignores anything else", () => {
+  const listed = normalizeHouseholdList({
+    child: { id: "zoe", name: "Zoe" },
+    now: "2026-10-17T12:00:00.000Z",
+    rooms: [{
+      id: "lounge",
+      name: "Lounge",
+      floor: 0,
+      chores: [{
+        id: "tidy-playroom",
+        title: "Tidy the playroom",
+        job: "tidy",
+        chore_kind: "job",
+        target_type: "room",
+        target_id: "lounge",
+        place_name: null,
+        tickets: 9,
+        term_time_only: false,
+        due_today: true,
+        allowed_claimers: [],
+        claim: null,
+        held: true,
+        held_by: "Zoe",
+        last_completed_at: null,
+        last_completed_by: null,
+        last_completed_by_me: false,
+        can_undo: false,
+      }],
+    }],
+  }, "zoe");
+  assert.ok(listed);
+  assert.equal(listed.rooms[0].chores[0].tickets, 9);
+  assert.equal(listed.rooms[0].chores[0].held_by, "Zoe");
+  assert.equal(listed.rooms[0].chores[0].held_by_me, true);
+  const objectHolder = normalizeHouseholdList({
+    child: { id: "hannah", name: "Hannah" },
+    rooms: [{ id: "bath", name: "Bathroom", floor: 1, chores: [{
+      id: "wipe-sink", title: "Wipe the sink", tickets: 1, held: true, held_by: { child_id: "hannah", name: "Hannah", mine: true }, claim: null,
+    }] }],
+  }, "hannah");
+  assert.equal(objectHolder?.rooms[0].chores[0].held_by_me, true);
+  assert.equal(objectHolder?.rooms[0].chores[0].tickets, 1);
+  assert.equal(normalizeHouseholdList({ chores: [] }, "zoe"), null);
 });
 
 let pool: pg.Pool;
 let base = "";
+let stubUrl = "";
 let closeServer = () => {};
 let closeStub = async () => {};
-let calls: { action: string; choreId: string; childId: string | null; realIp: string | null }[] = [];
+let resetStub = () => {};
+let calls: { action: string; choreId: string | null; headerChild: string | null; queryChild: string | null; bodyChild: string | null }[] = [];
 
 before(async () => {
   if (!url) return;
   pool = new pg.Pool({ connectionString: url });
   await pool.query(CORE);
   await applyTicketsMigrations(pool);
+  await pool.query(`
+    INSERT INTO tickets.tasks (task_id, title, ticket_reward, assigned_to, emoji, created_at, updated_at)
+    VALUES ('tidy-room', 'Tidy your room', 2, '{}', '🧸', now(), now())
+    ON CONFLICT (task_id) DO NOTHING
+  `);
   const stub = await startHouseholdStub(pool);
   calls = stub.calls;
+  resetStub = stub.reset;
   closeStub = stub.close;
+  stubUrl = stub.url;
   const listener = createLocalTickets({
     pool,
     household: { enabled: true, url: stub.url },
@@ -96,46 +140,63 @@ function flat(body: { rooms: { name: string; chores: Record<string, unknown>[] }
     room: string;
     place_name: string | null;
     tickets: number;
-    last_done_by: string | null;
-    last_done_by_me: boolean;
-    term_time: boolean;
-    kind: string | null;
-    claim: { name: string; mine: boolean; held: boolean } | null;
+    last_completed_by: string | null;
+    last_completed_by_me: boolean;
+    can_undo: boolean;
+    term_time_only: boolean;
+    due_today: boolean;
+    chore_kind: string;
+    held: boolean;
+    held_by: string | null;
+    held_by_me: boolean;
+    claim: { child_id: string; name: string; mine: boolean } | null;
   }[];
 }
 
-test("a child sees household chores they can claim, and jobs stay put", { skip: !url }, async () => {
-  await seedHousehold(pool);
+test("a child sees the household list, with its ticket badge, and jobs stay put", { skip: !url }, async () => {
+  resetStub();
+  const schema = await pool.query("SELECT to_regnamespace('household') AS schema");
+  assert.equal(schema.rows[0].schema, null);
   const listed = await call("/api/kid/household-chores", ZOE);
   assert.equal(listed.status, 200);
   assert.equal(listed.body.enabled, true);
+  const listCall = calls.find((entry) => entry.action === "list");
+  assert.equal(listCall?.headerChild, "zoe");
+  assert.equal(listCall?.queryChild, "zoe");
   const chores = flat(listed.body);
   assert.deepEqual(chores.map((chore) => chore.id).sort(), ["clean-oven", "clean-window", "empty-bin", "hoover-bathroom", "pack-bag", "tidy-playroom"]);
   const oven = chores.find((chore) => chore.id === "clean-oven")!;
   assert.equal(oven.room, "Kitchen");
   assert.equal(oven.place_name, "Oven");
   assert.equal(oven.tickets, 0);
-  assert.equal(oven.last_done_by, "Zoe");
-  assert.equal(oven.last_done_by_me, true);
+  assert.equal(oven.last_completed_by, "Zoe");
+  assert.equal(oven.last_completed_by_me, true);
+  assert.equal(oven.can_undo, true);
   const bin = chores.find((chore) => chore.id === "empty-bin")!;
   assert.equal(bin.claim?.mine, false);
   assert.equal(bin.claim?.name, "Lydia");
   const play = chores.find((chore) => chore.id === "tidy-playroom")!;
   assert.equal(play.room, "Lounge");
   assert.equal(play.tickets, 4);
-  assert.equal(play.claim?.mine, true);
-  assert.equal(play.claim?.held, true);
+  assert.equal(play.held, true);
+  assert.equal(play.held_by, "Zoe");
+  assert.equal(play.held_by_me, true);
+  assert.equal(play.claim, null);
   const hoover = chores.find((chore) => chore.id === "hoover-bathroom")!;
   assert.equal(hoover.room, "Bathroom");
   assert.equal(hoover.tickets, 2);
   assert.equal(hoover.place_name, null);
   const bag = chores.find((chore) => chore.id === "pack-bag")!;
-  assert.equal(bag.term_time, true);
-  assert.equal(bag.kind, "routine");
-  assert.equal(chores.find((chore) => chore.id === "clean-window")!.place_name, "Kitchen window");
+  assert.equal(bag.term_time_only, true);
+  assert.equal(bag.due_today, true);
+  assert.equal(bag.chore_kind, "routine");
+  const window = chores.find((chore) => chore.id === "clean-window")!;
+  assert.equal(window.place_name, "Kitchen window");
+  assert.equal(window.tickets, 9);
 
   const hannah = flat((await call("/api/kid/household-chores", HANNAH_IP)).body);
   assert.equal(hannah.some((chore) => chore.id === "wipe-sink"), true);
+  assert.equal(hannah.some((chore) => chore.id === "make-bed"), false);
 
   const jobs = await call("/api/kid/tasks", ZOE);
   assert.equal(jobs.status, 200);
@@ -144,19 +205,25 @@ test("a child sees household chores they can claim, and jobs stay put", { skip: 
 });
 
 test("claim, done and undo go through household and award tickets once", { skip: !url }, async () => {
-  await seedHousehold(pool);
+  resetStub();
   calls.length = 0;
   const before = await call("/api/kid/tasks", ZOE);
   const claim = await call("/api/kid/household-chores/hoover-bathroom/claim", ZOE, { method: "POST" });
   assert.equal(claim.status, 200);
+  assert.equal(claim.body.result.claim.choreId, "hoover-bathroom");
+  assert.equal(claim.body.result.claim.childId, "zoe");
   assert.equal(calls.at(-1)?.action, "claim");
-  assert.equal(calls.at(-1)?.childId, "zoe");
-  assert.equal(calls.at(-1)?.realIp, ZOE);
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM household.chore_claims WHERE chore_id = 'hoover-bathroom' AND child_id = 'zoe'")).rows[0].n, 1);
+  assert.equal(calls.at(-1)?.headerChild, "zoe");
+  assert.equal(calls.at(-1)?.bodyChild, "zoe");
+  assert.equal(calls.at(-1)?.queryChild, null);
 
   const done = await call("/api/kid/household-chores/hoover-bathroom/complete", ZOE, { method: "POST" });
   assert.equal(done.status, 200);
+  assert.equal(done.body.tickets, 2);
+  assert.equal(done.body.result.ticketSync.ok, true);
   assert.equal(calls.at(-1)?.action, "complete");
+  assert.equal(calls.at(-1)?.headerChild, "zoe");
+  assert.equal(calls.at(-1)?.bodyChild, "zoe");
   const awards = await pool.query("SELECT tickets, source, label FROM tickets.awards WHERE child_id = 'zoe' AND task_id = 'chores#hoover-bathroom'");
   assert.equal(awards.rowCount, 1);
   assert.equal(awards.rows[0].source, "household");
@@ -168,19 +235,27 @@ test("claim, done and undo go through household and award tickets once", { skip:
   const again = flat((await call("/api/kid/household-chores", ZOE)).body).find((chore) => chore.id === "hoover-bathroom")!;
   assert.equal(again.tickets, 0);
   assert.equal(again.claim, null);
-  assert.equal(again.last_done_by, "Zoe");
+  assert.equal(again.last_completed_by, "Zoe");
+  assert.equal(again.can_undo, true);
 
   const repeat = await call("/api/kid/household-chores/hoover-bathroom/complete", ZOE, { method: "POST" });
   assert.equal(repeat.status, 404);
+  assert.equal(typeof repeat.body.error, "string");
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets.awards WHERE task_id = 'chores#hoover-bathroom'")).rows[0].n, 1);
 
   const blocked = await call("/api/kid/household-chores/empty-bin/claim", ZOE, { method: "POST" });
   assert.equal(blocked.status, 409);
+  assert.equal(typeof blocked.body.error, "string");
   const notMine = await call("/api/kid/household-chores/wipe-sink/claim", ZOE, { method: "POST" });
   assert.equal(notMine.status, 403);
+  const notDue = await call("/api/kid/household-chores/make-bed/claim", ZOE, { method: "POST" });
+  assert.equal(notDue.status, 409);
+  assert.match(notDue.body.error, /due today/);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets.awards WHERE task_id = 'chores#make-bed'")).rows[0].n, 0);
 
   const undo = await call("/api/kid/household-chores/hoover-bathroom/undo", ZOE, { method: "POST" });
   assert.equal(undo.status, 200);
+  assert.equal(undo.body.result.ticketSync.ok, true);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets.awards WHERE task_id = 'chores#hoover-bathroom'")).rows[0].n, 0);
   assert.equal((await call("/api/kid/tasks", ZOE)).body.spendable_tickets, before.body.spendable_tickets);
 
@@ -189,19 +264,24 @@ test("claim, done and undo go through household and award tickets once", { skip:
     headers: { "x-tickets-act-as": "zoe" },
   });
   assert.equal(asParent.status, 200);
-  assert.equal(calls.at(-1)?.childId, "zoe");
-  assert.equal(calls.at(-1)?.realIp, PARENT);
+  assert.equal(calls.at(-1)?.headerChild, "zoe");
+  assert.equal(calls.at(-1)?.bodyChild, "zoe");
 });
 
-test("missing household columns still list chores, and a down household hides the section", { skip: !url }, async () => {
-  await seedHouseholdMinimal(pool);
-  const listed = await call("/api/kid/household-chores", ZOE);
-  assert.equal(listed.body.enabled, true);
-  const chores = flat(listed.body);
-  assert.deepEqual(chores.map((chore) => chore.id).sort(), ["brush-toilet", "hoover-bathroom"]);
-  assert.equal(chores.find((chore) => chore.id === "brush-toilet")!.place_name, "Toilet");
-  assert.equal(chores.find((chore) => chore.id === "hoover-bathroom")!.tickets, 2);
+test("the stand-in rejects a child that does not match on header, query and body", { skip: !url }, async () => {
+  const mismatch = await fetch(`${stubUrl}/api/kid/chores?child=hannah`, { headers: { "x-household-child": "zoe" } });
+  assert.equal(mismatch.status, 400);
+  const post = await fetch(`${stubUrl}/api/kid/chores/hoover-bathroom/claim`, {
+    method: "POST",
+    headers: { "x-household-child": "zoe", "content-type": "application/json" },
+    body: JSON.stringify({ child_id: "hannah" }),
+  });
+  assert.equal(post.status, 400);
+  const health = await fetch(`${stubUrl}/api/health`);
+  assert.deepEqual(await health.json(), { ok: true, service: "household", demo: true });
+});
 
+test("a switched-off flag or a silent household hides the section and leaves jobs", { skip: !url }, async () => {
   const offListener = createLocalTickets({ pool, household: { enabled: false, url: "http://127.0.0.1:9" }, log: () => {} });
   const offServer = createServer((req, res) => void offListener(req, res));
   await new Promise<void>((resolve) => offServer.listen(0, "127.0.0.1", resolve));
@@ -227,10 +307,11 @@ test("missing household columns still list chores, and a down household hides th
   const postBody = await post.json();
   assert.equal(post.status, 200);
   assert.equal(postBody.enabled, false);
+  assert.equal("error" in postBody, false);
   downServer.close();
 
   const missing = createServer((_req, res) => {
-    res.writeHead(404, { "content-type": "application/json" }).end("{}");
+    res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ error: "nope" }));
   });
   await new Promise<void>((resolve) => missing.listen(0, "127.0.0.1", resolve));
   const missingUrl = `http://127.0.0.1:${(missing.address() as AddressInfo).port}`;
@@ -238,16 +319,14 @@ test("missing household columns still list chores, and a down household hides th
   const gapServer = createServer((req, res) => void gapListener(req, res));
   await new Promise<void>((resolve) => gapServer.listen(0, "127.0.0.1", resolve));
   const gapBase = `http://127.0.0.1:${(gapServer.address() as AddressInfo).port}`;
-  const stillListed = await fetch(`${gapBase}/api/kid/household-chores`, { headers: { "x-real-ip": ZOE } });
-  const stillBody = await stillListed.json();
-  assert.equal(stillBody.enabled, true, "a 404 health response still means the process is up");
+  const hidden = await fetch(`${gapBase}/api/kid/household-chores`, { headers: { "x-real-ip": ZOE } });
+  assert.deepEqual(await hidden.json(), { enabled: false, rooms: [] });
   const awardsBefore = (await pool.query("SELECT count(*)::int AS n FROM tickets.awards")).rows[0].n;
   const gap = await fetch(`${gapBase}/api/kid/household-chores/hoover-bathroom/claim`, { method: "POST", headers: { "x-real-ip": ZOE } });
   const gapBody = await gap.json();
   assert.equal(gap.status, 404);
-  assert.match(gapBody.error, /Household has no way/);
+  assert.equal(gapBody.error, "nope");
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets.awards")).rows[0].n, awardsBefore);
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM household.chore_claims")).rows[0].n, 0);
   gapServer.close();
   missing.close();
 });

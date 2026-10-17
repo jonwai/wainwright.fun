@@ -280,12 +280,13 @@ export default function App() {
       try {
         const run =
           action === "claim" ? claimHouseholdChore : action === "complete" ? completeHouseholdChore : undoHouseholdChore;
-        const hidden = await run(chore.id);
-        if (hidden) {
-          setHousehold(hidden);
+        const outcome = await run(chore.id);
+        if (outcome.hidden) {
+          setHousehold({ enabled: false, rooms: [] });
           setJustHousehold(null);
         } else if (action === "complete") {
-          setJustHousehold(`${chore.title} done — ${chore.tickets} ticket${chore.tickets === 1 ? "" : "s"} earned!`);
+          const tickets = outcome.tickets ?? chore.tickets;
+          setJustHousehold(`${chore.title} done — ${tickets} ticket${tickets === 1 ? "" : "s"} earned!`);
           await Promise.all([load(), loadHousehold()]);
         } else {
           setJustHousehold(null);
@@ -1002,9 +1003,9 @@ function HouseholdChoreCard({
   onComplete: () => void;
   onUndo: () => void;
 }) {
-  const mine = chore.claim?.mine === true;
-  const taken = chore.claim !== null && !mine;
-  const routine = chore.term_time || chore.kind === "routine" || chore.kind === "scheduled";
+  const mine = chore.claim?.mine === true || chore.held_by_me;
+  const taken = (chore.claim !== null && !chore.claim.mine) || (chore.held && !chore.held_by_me && !chore.claim?.mine);
+  const routine = chore.chore_kind === "routine";
   return (
     <div className={`bg-surface border rounded-xl p-4 backdrop-blur-md shadow-card ${mine ? "border-accent" : "border-border"}`}>
       <div className="flex items-start justify-between gap-3">
@@ -1012,13 +1013,19 @@ function HouseholdChoreCard({
           <h2 className="text-lg font-extrabold leading-tight">{chore.title}</h2>
           {chore.place_name && <p className="text-muted text-sm mt-1">{chore.place_name}</p>}
           <p className="text-xs text-muted mt-1">
-            {chore.last_done_at
-              ? `Last done ${friendlyDate(chore.last_done_at)} by ${chore.last_done_by ?? "someone"}`
+            {chore.last_completed_at
+              ? `Last done ${friendlyDate(chore.last_completed_at)} by ${chore.last_completed_by ?? "someone"}`
               : "Not done yet"}
-            {mine ? (chore.claim?.held ? " · Held for you" : " · You claimed this") : ""}
-            {taken ? ` · ${chore.claim?.name} claimed this` : ""}
+            {chore.held_by_me ? " · Held for you" : ""}
+            {chore.claim?.mine ? " · You claimed this" : ""}
+            {chore.claim && !chore.claim.mine ? ` · ${chore.claim.name} claimed this` : ""}
+            {chore.held && !chore.held_by_me && chore.held_by ? ` · Held for ${chore.held_by}` : ""}
           </p>
-          {routine && <p className="text-xs font-bold text-accent-strong mt-1">{chore.term_time ? "Term time" : "Routine"}</p>}
+          {(routine || chore.term_time_only || chore.due_today) && (
+            <p className="text-xs font-bold text-accent-strong mt-1">
+              {[routine ? "Routine" : null, chore.term_time_only ? "Term time" : null, chore.due_today ? "Due today" : null].filter(Boolean).join(" · ")}
+            </p>
+          )}
         </div>
         <div className="inline-flex items-baseline gap-1 bg-accent-soft rounded-full px-3 py-1 shrink-0">
           <span className="text-lg font-extrabold text-accent-strong">{chore.tickets}</span>
@@ -1026,7 +1033,7 @@ function HouseholdChoreCard({
         </div>
       </div>
       <div className="flex items-center gap-2 mt-3">
-        {chore.last_done_by_me && (
+        {chore.can_undo && (
           <button
             type="button"
             className="min-h-10 px-4 rounded-md text-sm font-semibold cursor-pointer border border-border bg-surface-solid transition-colors hover:bg-bg-accent disabled:opacity-50"

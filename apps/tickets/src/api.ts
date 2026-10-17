@@ -260,15 +260,23 @@ export interface HouseholdChore {
   id: string;
   title: string;
   job: string | null;
-  place_name: string | null;
+  chore_kind: string;
   target_type: string;
+  target_id: string | null;
+  place_name: string | null;
+  /** Award right now, as Household calculated it. */
   tickets: number;
-  last_done_at: string | null;
-  last_done_by: string | null;
-  last_done_by_me: boolean;
-  claim: { child_id: string; name: string; mine: boolean; held: boolean } | null;
-  kind: string | null;
-  term_time: boolean;
+  term_time_only: boolean;
+  due_today: boolean;
+  allowed_claimers: string[];
+  claim: { child_id: string; name: string; mine: boolean } | null;
+  held: boolean;
+  held_by: string | null;
+  held_by_me: boolean;
+  last_completed_at: string | null;
+  last_completed_by: string | null;
+  last_completed_by_me: boolean;
+  can_undo: boolean;
 }
 
 export interface HouseholdRoom {
@@ -297,25 +305,32 @@ export async function fetchHouseholdChores(): Promise<HouseholdChoresState> {
   }
 }
 
-async function householdAction(choreId: string, action: "claim" | "complete" | "undo"): Promise<HouseholdChoresState | null> {
+export interface HouseholdActionOutcome {
+  /** Household did not answer: hide the section and show no error. */
+  hidden: boolean;
+  /** Tickets Household awarded on complete. */
+  tickets?: number;
+}
+
+async function householdAction(choreId: string, action: "claim" | "complete" | "undo"): Promise<HouseholdActionOutcome> {
   const response = await kidFetch(`/kid/household-chores/${encodeURIComponent(choreId)}/${action}`, { method: "POST" });
   const data = await response.json().catch(() => ({}));
-  if (data.enabled === false) return HOUSEHOLD_HIDDEN;
+  if (data.enabled === false) return { hidden: true };
   if (!response.ok) {
     throw new Error(typeof data.error === "string" ? data.error : "Could not update that chore");
   }
-  return null;
+  return { hidden: false, tickets: typeof data.tickets === "number" ? data.tickets : undefined };
 }
 
-export async function claimHouseholdChore(choreId: string): Promise<HouseholdChoresState | null> {
+export async function claimHouseholdChore(choreId: string): Promise<HouseholdActionOutcome> {
   return householdAction(choreId, "claim");
 }
 
-export async function completeHouseholdChore(choreId: string): Promise<HouseholdChoresState | null> {
+export async function completeHouseholdChore(choreId: string): Promise<HouseholdActionOutcome> {
   return householdAction(choreId, "complete");
 }
 
-export async function undoHouseholdChore(choreId: string): Promise<HouseholdChoresState | null> {
+export async function undoHouseholdChore(choreId: string): Promise<HouseholdActionOutcome> {
   return householdAction(choreId, "undo");
 }
 
