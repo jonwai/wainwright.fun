@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import pg from "pg";
 import { createLocalTickets } from "./app.js";
+import { householdLinkFromEnv } from "./household-chores.js";
 import { createLocalSites, parseLauncherHosts } from "./sites.js";
 import { applyTicketsMigrations, waitForCore } from "./migrate.js";
 
@@ -14,11 +15,15 @@ const ran = await applyTicketsMigrations(pool);
 if (ran.length) log(`applied tickets migrations: ${ran.join(", ")}`);
 
 const ticketIconsDir = process.env.TICKETS_ICONS_DIR ?? "/data/ticket-icons";
+const household = householdLinkFromEnv();
+if (process.env.HOUSEHOLD_CHORES === "1" && !household.enabled) log("HOUSEHOLD_CHORES is set but HOUSEHOLD_URL is empty: house chores stay hidden");
+else if (household.enabled) log(`house chores on, via ${household.url}`);
 const tickets = createLocalTickets({
   pool,
   staticDir: process.env.TICKETS_STATIC_DIR ?? "apps/tickets/dist",
   adminDir: process.env.TICKETS_ADMIN_DIR ?? "apps/admin/dist-local-tickets",
   iconsDir: ticketIconsDir,
+  household,
   log,
 });
 // wainwright.fun, each child's hostname and admin.wainwright.fun share the server; everything else is tickets.

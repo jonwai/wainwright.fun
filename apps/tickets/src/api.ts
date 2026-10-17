@@ -256,6 +256,69 @@ export async function completeTask(
   return data;
 }
 
+export interface HouseholdChore {
+  id: string;
+  title: string;
+  job: string | null;
+  place_name: string | null;
+  target_type: string;
+  tickets: number;
+  last_done_at: string | null;
+  last_done_by: string | null;
+  last_done_by_me: boolean;
+  claim: { child_id: string; name: string; mine: boolean; held: boolean } | null;
+  kind: string | null;
+  term_time: boolean;
+}
+
+export interface HouseholdRoom {
+  id: string;
+  name: string;
+  floor: number | null;
+  chores: HouseholdChore[];
+}
+
+export interface HouseholdChoresState {
+  enabled: boolean;
+  rooms: HouseholdRoom[];
+}
+
+const HOUSEHOLD_HIDDEN: HouseholdChoresState = { enabled: false, rooms: [] };
+
+/** House chores. A failure or a switched-off flag hides the section. */
+export async function fetchHouseholdChores(): Promise<HouseholdChoresState> {
+  try {
+    const response = await kidFetch("/kid/household-chores");
+    if (!response.ok) return HOUSEHOLD_HIDDEN;
+    const data = await response.json();
+    return { enabled: data.enabled === true, rooms: Array.isArray(data.rooms) ? data.rooms : [] };
+  } catch {
+    return HOUSEHOLD_HIDDEN;
+  }
+}
+
+async function householdAction(choreId: string, action: "claim" | "complete" | "undo"): Promise<HouseholdChoresState | null> {
+  const response = await kidFetch(`/kid/household-chores/${encodeURIComponent(choreId)}/${action}`, { method: "POST" });
+  const data = await response.json().catch(() => ({}));
+  if (data.enabled === false) return HOUSEHOLD_HIDDEN;
+  if (!response.ok) {
+    throw new Error(typeof data.error === "string" ? data.error : "Could not update that chore");
+  }
+  return null;
+}
+
+export async function claimHouseholdChore(choreId: string): Promise<HouseholdChoresState | null> {
+  return householdAction(choreId, "claim");
+}
+
+export async function completeHouseholdChore(choreId: string): Promise<HouseholdChoresState | null> {
+  return householdAction(choreId, "complete");
+}
+
+export async function undoHouseholdChore(choreId: string): Promise<HouseholdChoresState | null> {
+  return householdAction(choreId, "undo");
+}
+
 export async function undoTask(
   taskId: string
 ): Promise<{ removed: boolean; total_tickets: number }> {
