@@ -34,6 +34,9 @@ ENV NODE_ENV=production \
     KIDS_STATIC_DIR=/app/kids \
     KIDS_ADMIN_DIR=/app/kids-admin \
     KIDS_ICONS_DIR=/data/kids-icons
+# House chores stay hidden unless the compose service sets both at runtime:
+#   HOUSEHOLD_CHORES=1
+#   HOUSEHOLD_URL=http://household:43126
 COPY --from=build /app/packages/local/dist ./dist
 COPY --from=build /app/packages/local/migrations ./migrations
 COPY --from=build /app/apps/tickets/dist-local ./tickets

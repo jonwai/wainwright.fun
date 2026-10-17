@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { QrScanner } from "./components/QrScanner";
 import {
   chooseChild,
+  claimHouseholdChore,
+  completeHouseholdChore,
   completeTask,
+  fetchHouseholdChores,
   LOCAL_AUTH,
   whoAmI,
   type LocalWhoAmI,
@@ -13,7 +16,10 @@ import {
   pairDevice,
   redeemReward,
   refundReward,
+  undoHouseholdChore,
   undoTask,
+  type HouseholdChore,
+  type HouseholdChoresState,
   type KidRedemption,
   type KidReward,
   type KidTask,
@@ -69,11 +75,21 @@ export default function App() {
   const [who, setWho] = useState<LocalWhoAmI | null>(null);
   const [pickChild, setPickChild] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [household, setHousehold] = useState<HouseholdChoresState | null>(null);
+  const [justHousehold, setJustHousehold] = useState<string | null>(null);
+
+  const loadHousehold = useCallback(async () => {
+    if (!LOCAL_AUTH) {
+      setHousehold({ enabled: false, rooms: [] });
+      return;
+    }
+    setHousehold(await fetchHouseholdChores());
+  }, []);
 
   const load = useCallback(async () => {
     try {
       if (LOCAL_AUTH) setWho(await whoAmI());
-      const next = await fetchTasksState();
+      const [next] = await Promise.all([fetchTasksState(), loadHousehold()]);
       setState(next);
       setError(null);
       setUnpaired(false);
@@ -89,20 +105,21 @@ export default function App() {
         setError(err instanceof Error ? err.message : "Could not load your jobs");
       }
     }
-  }, []);
+  }, [loadHousehold]);
 
   const refresh = useCallback(async () => {
     if (refreshing || busyId) return;
     setRefreshing(true);
     const started = Date.now();
     try {
-      const [tasksOutcome, rewardsOutcome, historyOutcome] = await Promise.allSettled([
+      const [tasksOutcome, rewardsOutcome, historyOutcome, householdOutcome] = await Promise.allSettled([
         (async () => {
           if (LOCAL_AUTH) setWho(await whoAmI());
           return fetchTasksState();
         })(),
         fetchRewardsState(),
         fetchTicketHistory(),
+        loadHousehold(),
       ]);
 
       if (tasksOutcome.status === "fulfilled") {
@@ -118,6 +135,8 @@ export default function App() {
         setHistory(historyOutcome.value.completions);
         setCashedIn(historyOutcome.value.redemptions);
       }
+
+      if (householdOutcome.status === "rejected") setHousehold({ enabled: false, rooms: [] });
 
       const failure = [tasksOutcome, rewardsOutcome, historyOutcome].find(
         (outcome) => outcome.status === "rejected"
@@ -142,7 +161,7 @@ export default function App() {
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       setRefreshing(false);
     }
-  }, [busyId, refreshing, screen]);
+  }, [busyId, loadHousehold, refreshing, screen]);
 
   useEffect(() => {
     load();
@@ -251,6 +270,37 @@ export default function App() {
       }
     },
     [busyId, load]
+  );
+
+  const householdAct = useCallback(
+    async (chore: HouseholdChore, action: "claim" | "complete" | "undo") => {
+      if (busyId) return;
+      setBusyId(chore.id);
+      setError(null);
+      try {
+        const run =
+          action === "claim" ? claimHouseholdChore : action === "complete" ? completeHouseholdChore : undoHouseholdChore;
+        const outcome = await run(chore.id);
+        if (outcome.hidden) {
+          setHousehold({ enabled: false, rooms: [] });
+          setJustHousehold(null);
+        } else if (action === "complete") {
+          const tickets = outcome.tickets ?? chore.tickets;
+          setJustHousehold(`${chore.title} done — ${tickets} ticket${tickets === 1 ? "" : "s"} earned!`);
+          await Promise.all([load(), loadHousehold()]);
+        } else {
+          setJustHousehold(null);
+          await Promise.all([load(), loadHousehold()]);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not update that chore";
+        await Promise.all([load(), loadHousehold()]);
+        setError(message);
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [busyId, load, loadHousehold],
   );
 
   const undo = useCallback(
@@ -497,6 +547,12 @@ export default function App() {
         </div>
       )}
 
+      {justHousehold && (
+        <div className="mx-6 mb-4 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-center font-semibold pop-in">
+          Amazing! {justHousehold} 🎉
+        </div>
+      )}
+
       {justRedeemed && (
         <div className="mx-6 mb-4 p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-center font-semibold pop-in">
           Yay! {justRedeemed.title} is yours — tell a grown-up! 🎁
@@ -505,25 +561,36 @@ export default function App() {
 
       <main className="flex-1 px-6 pb-10 max-w-3xl mx-auto w-full">
         {screen === "jobs" ? (
-          state.tasks.length === 0 ? (
-            <div className="text-center py-10">
-              <div className="text-6xl mb-3">🎈</div>
-              <p className="text-xl font-bold">No jobs yet!</p>
-              <p className="text-muted">Come back soon for new jobs to do.</p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              {state.tasks.map((task) => (
-                <JobCard
-                  key={task.task_id}
-                  task={task}
-                  busy={busyId === task.task_id}
-                  onComplete={() => complete(task)}
-                  onUndo={() => undo(task)}
-                />
-              ))}
-            </div>
-          )
+          <div className="flex flex-col gap-8">
+            {state.tasks.length === 0 ? (
+              <div className="text-center py-10">
+                <div className="text-6xl mb-3">🎈</div>
+                <p className="text-xl font-bold">No jobs yet!</p>
+                <p className="text-muted">Come back soon for new jobs to do.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {state.tasks.map((task) => (
+                  <JobCard
+                    key={task.task_id}
+                    task={task}
+                    busy={busyId === task.task_id}
+                    onComplete={() => complete(task)}
+                    onUndo={() => undo(task)}
+                  />
+                ))}
+              </div>
+            )}
+            {household?.enabled && (
+              <HouseholdChores
+                rooms={household.rooms}
+                busyId={busyId}
+                onClaim={(chore) => void householdAct(chore, "claim")}
+                onComplete={(chore) => void householdAct(chore, "complete")}
+                onUndo={(chore) => void householdAct(chore, "undo")}
+              />
+            )}
+          </div>
         ) : screen === "rewards" ? (
           rewardsState === null ? (
             <div className="flex justify-center py-10">
@@ -872,6 +939,129 @@ function JobCard({
             disabled={busy}
           >
             I did it! 🎉
+          </button>
+        )}
+        {busy && <div className="spinner" />}
+      </div>
+    </div>
+  );
+}
+
+function HouseholdChores({
+  rooms,
+  busyId,
+  onClaim,
+  onComplete,
+  onUndo,
+}: {
+  rooms: HouseholdChoresState["rooms"];
+  busyId: string | null;
+  onClaim: (chore: HouseholdChore) => void;
+  onComplete: (chore: HouseholdChore) => void;
+  onUndo: (chore: HouseholdChore) => void;
+}) {
+  const chores = rooms.flatMap((room) => room.chores);
+  return (
+    <section className="flex flex-col gap-4">
+      <div>
+        <h2 className="text-xl font-extrabold">House chores</h2>
+        <p className="text-sm text-muted">Around the house. Tickets grow the longer a chore waits.</p>
+      </div>
+      {chores.length === 0 ? (
+        <p className="text-center text-muted py-4">Nothing to do around the house right now.</p>
+      ) : (
+        rooms.map((room) => (
+          <div key={room.id || room.name} className="flex flex-col gap-3">
+            <h3 className="text-sm font-extrabold uppercase tracking-wide text-muted">{room.name}</h3>
+            {room.chores.map((chore) => (
+              <HouseholdChoreCard
+                key={chore.id}
+                chore={chore}
+                busy={busyId === chore.id}
+                onClaim={() => onClaim(chore)}
+                onComplete={() => onComplete(chore)}
+                onUndo={() => onUndo(chore)}
+              />
+            ))}
+          </div>
+        ))
+      )}
+    </section>
+  );
+}
+
+function HouseholdChoreCard({
+  chore,
+  busy,
+  onClaim,
+  onComplete,
+  onUndo,
+}: {
+  chore: HouseholdChore;
+  busy: boolean;
+  onClaim: () => void;
+  onComplete: () => void;
+  onUndo: () => void;
+}) {
+  const mine = chore.claim?.mine === true || chore.held_by_me;
+  const taken = (chore.claim !== null && !chore.claim.mine) || (chore.held && !chore.held_by_me && !chore.claim?.mine);
+  const routine = chore.chore_kind === "routine";
+  return (
+    <div className={`bg-surface border rounded-xl p-4 backdrop-blur-md shadow-card ${mine ? "border-accent" : "border-border"}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-extrabold leading-tight">{chore.title}</h2>
+          {chore.place_name && <p className="text-muted text-sm mt-1">{chore.place_name}</p>}
+          <p className="text-xs text-muted mt-1">
+            {chore.last_completed_at
+              ? `Last done ${friendlyDate(chore.last_completed_at)} by ${chore.last_completed_by ?? "someone"}`
+              : "Not done yet"}
+            {chore.held_by_me ? " · Held for you" : ""}
+            {chore.claim?.mine ? " · You claimed this" : ""}
+            {chore.claim && !chore.claim.mine ? ` · ${chore.claim.name} claimed this` : ""}
+            {chore.held && !chore.held_by_me && chore.held_by ? ` · Held for ${chore.held_by}` : ""}
+          </p>
+          {(routine || chore.term_time_only || chore.due_today) && (
+            <p className="text-xs font-bold text-accent-strong mt-1">
+              {[routine ? "Routine" : null, chore.term_time_only ? "Term time" : null, chore.due_today ? "Due today" : null].filter(Boolean).join(" · ")}
+            </p>
+          )}
+        </div>
+        <div className="inline-flex items-baseline gap-1 bg-accent-soft rounded-full px-3 py-1 shrink-0">
+          <span className="text-lg font-extrabold text-accent-strong">{chore.tickets}</span>
+          <span className="text-xs text-muted">ticket{chore.tickets === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 mt-3">
+        {chore.can_undo && (
+          <button
+            type="button"
+            className="min-h-10 px-4 rounded-md text-sm font-semibold cursor-pointer border border-border bg-surface-solid transition-colors hover:bg-bg-accent disabled:opacity-50"
+            onClick={onUndo}
+            disabled={busy}
+          >
+            Undo
+          </button>
+        )}
+        {mine ? (
+          <button
+            type="button"
+            className="ml-auto min-h-12 px-6 rounded-md text-white text-base font-extrabold border-none cursor-pointer bg-accent transition-colors hover:bg-accent-strong disabled:opacity-50"
+            onClick={onComplete}
+            disabled={busy}
+          >
+            I did it! 🎉
+          </button>
+        ) : taken ? (
+          <span className="ml-auto text-sm font-semibold text-muted">Already claimed</span>
+        ) : (
+          <button
+            type="button"
+            className="ml-auto min-h-12 px-6 rounded-md text-white text-base font-extrabold border-none cursor-pointer bg-accent transition-colors hover:bg-accent-strong disabled:opacity-50"
+            onClick={onClaim}
+            disabled={busy}
+          >
+            I'll do this
           </button>
         )}
         {busy && <div className="spinner" />}

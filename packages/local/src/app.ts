@@ -34,6 +34,7 @@ import {
   type Viewer,
 } from "./identity.js";
 import { PgDocumentClient, RefusedWrite, type PgDocumentClientOptions } from "./pg-ddb.js";
+import { handleHouseholdChores, householdLinkFromEnv, type HouseholdLink } from "./household-chores.js";
 import { tryHandleTaskRoute } from "./routes.js";
 import { LOCAL_CHILD_HEADER } from "./shims/kid-routes.js";
 
@@ -48,6 +49,11 @@ export interface LocalTicketsOptions {
   log?: (line: string) => void;
   /** Tests only: in-memory tables for anything the adapter does not map. */
   ddbOptions?: PgDocumentClientOptions;
+  /**
+   * Household chores in the kid UI. Omit to read HOUSEHOLD_CHORES / HOUSEHOLD_URL.
+   * Off (or Household not answering) hides the section and writes nothing.
+   */
+  household?: HouseholdLink;
 }
 
 type Json = Record<string, unknown> | unknown[];
@@ -75,6 +81,7 @@ export class HttpError extends Error {
 export function createLocalTickets(options: LocalTicketsOptions) {
   const { pool } = options;
   const log = options.log ?? (() => {});
+  const household = options.household ?? householdLinkFromEnv();
 
   async function viewerFor(db: pg.PoolClient | pg.Pool, headers: Record<string, string | undefined>, peer: string | null): Promise<Viewer> {
     const ip = clientIp(peer, headers["x-real-ip"]);
@@ -169,6 +176,12 @@ export function createLocalTickets(options: LocalTicketsOptions) {
       if (!viewer.admin) throw new HttpError(403, "Parents only");
     } else if (!viewer.child) {
       throw new HttpError(401, "Pick which child to look at");
+    }
+
+    // Household owns chore writes (and the tickets.award lock inside them). Do not take
+    // tickets.lock() here: the HTTP call would deadlock on that same lock.
+    if (kid && (resourceId === "household-chores" || resourceId.startsWith("household-chores/"))) {
+      return handleHouseholdChores(method, resourceId, viewer.child!.id, household, log);
     }
 
     if (method !== "GET") await db.query(TICKETS_LOCK_SQL);
