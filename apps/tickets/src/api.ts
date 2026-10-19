@@ -269,7 +269,7 @@ export interface HouseholdChore {
   term_time_only: boolean;
   due_today: boolean;
   allowed_claimers: string[];
-  claim: { child_id: string; name: string; mine: boolean } | null;
+  claim: { child_id: string; name: string; mine: boolean; auto_assigned?: boolean } | null;
   held: boolean;
   held_by: string | null;
   held_by_me: boolean;
@@ -283,8 +283,10 @@ export interface HouseholdChore {
   locked: boolean;
   /** Short label for what a locked chore is waiting on. */
   waiting_on: string | null;
-  /** Claimed, held, or auto-assigned to this child. */
+  /** This child holds the chore, including an auto-assignment. */
   assigned_to_me: boolean;
+  /** Household assigned it without the child claiming it by hand. */
+  auto_assigned: boolean;
 }
 
 export interface HouseholdChoresState {

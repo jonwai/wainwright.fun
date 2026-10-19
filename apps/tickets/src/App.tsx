@@ -1021,8 +1021,13 @@ function HouseholdChoreCard({
                 ? "Done"
                 : "Not done yet"}
             {!waiting && chore.held_by_me ? " · Held for you" : ""}
-            {!waiting && chore.claim?.mine ? " · You claimed this" : ""}
-            {!waiting && !chore.held_by_me && !chore.claim?.mine && chore.assigned_to_me ? " · Assigned to you" : ""}
+            {!waiting && (chore.auto_assigned || chore.claim?.auto_assigned === true)
+              ? " · Assigned to you"
+              : !waiting && chore.claim?.mine
+                ? " · You claimed this"
+                : !waiting && !chore.held_by_me && chore.assigned_to_me
+                  ? " · Assigned to you"
+                  : ""}
           </p>
           {waiting && (
             <p className="text-sm font-extrabold text-accent-strong mt-1">

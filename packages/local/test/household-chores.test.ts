@@ -41,10 +41,11 @@ const CORE = `
   INSERT INTO core.term_dates VALUES ('2026-2027', 0, 'Autumn', '2026-08-24', '2026-12-18', '2026-10-19', '2026-10-23');
 `;
 
-test("the kid list copies Household's tickets and held_by, and ignores anything else", () => {
+test("the kid list keeps this child's claims and a day of completions", () => {
+  const now = "2026-10-19T12:00:00.000Z";
   const listed = normalizeHouseholdList({
     child: { id: "zoe", name: "Zoe" },
-    now: "2026-10-17T12:00:00.000Z",
+    now,
     rooms: [{
       id: "lounge",
       name: "Lounge",
@@ -52,73 +53,40 @@ test("the kid list copies Household's tickets and held_by, and ignores anything 
       chores: [{
         id: "tidy-playroom",
         title: "Tidy the playroom",
-        job: "tidy",
-        chore_kind: "job",
-        target_type: "room",
-        target_id: "lounge",
-        place_name: null,
         tickets: 9,
-        term_time_only: false,
-        due_today: true,
-        allowed_claimers: [],
-        claim: null,
+        claim: { child_id: "zoe", name: "Zoe", mine: true, auto_assigned: false },
         held: true,
         held_by: "Zoe",
-        last_completed_at: null,
-        last_completed_by: null,
-        last_completed_by_me: false,
-        can_undo: false,
+        locked: false,
+        waiting_on: [],
+      }, {
+        id: "open-chore",
+        title: "An unclaimed chore",
+        tickets: 1,
+        claim: null,
+        held: true,
+        held_by: { child_id: "zoe", name: "Zoe", mine: true },
       }],
     }],
   }, "zoe");
-  assert.ok(listed);
-  assert.equal(listed.chores[0].tickets, 9);
-  assert.equal(listed.chores[0].held_by, "Zoe");
-  assert.equal(listed.chores[0].held_by_me, true);
-  assert.equal(listed.chores[0].room_name, "Lounge");
-  const objectHolder = normalizeHouseholdList({
-    child: { id: "hannah", name: "Hannah" },
-    rooms: [{ id: "bath", name: "Bathroom", floor: 1, chores: [{
-      id: "wipe-sink", title: "Wipe the sink", tickets: 1, held: true, held_by: { child_id: "hannah", name: "Hannah", mine: true }, claim: null,
-    }] }],
-  }, "hannah");
-  assert.equal(objectHolder?.chores[0].held_by_me, true);
-  assert.equal(objectHolder?.chores[0].tickets, 1);
-  assert.equal(normalizeHouseholdList({ now: "2026-10-17T12:00:00.000Z" }, "zoe"), null);
-  assert.deepEqual(normalizeHouseholdList({ chores: [] }, "zoe"), { chores: [], done_recently: [] });
+  assert.equal(listed?.chores.length, 1);
+  assert.equal(listed?.chores[0].tickets, 9);
+  assert.equal(listed?.chores[0].held_by, "Zoe");
+  assert.equal(listed?.chores[0].held_by_me, true);
+  assert.equal(listed?.chores[0].room_name, "Lounge");
+  assert.equal(listed?.chores[0].claim?.auto_assigned, false);
+  assert.equal(normalizeHouseholdList({ now }, "zoe"), null);
 
-  const assigned = normalizeHouseholdList({
+  const planned = normalizeHouseholdList({
     child: { id: "lydia", name: "Lydia" },
-    chores: [
-      { id: "empty-bin", title: "Empty the bin", tickets: 2, claim: { child_id: "lydia", name: "Lydia", mine: true }, room_name: "Kitchen" },
-      { id: "pack-bag", title: "Pack the school bag", tickets: 1, assigned: true, locked: true, waiting_on: { title: "the washing machine" }, room: { name: "Kitchen" } },
-      { id: "wipe-sink", title: "Wipe the sink", tickets: 1, claim: { child_id: "hannah", name: "Hannah", mine: false } },
-      { id: "open-window", title: "Open the window", tickets: 1 },
-    ],
-    done_recently: [
-      { id: "clean-oven", title: "Clean the oven", tickets: 0, can_undo: true, room_name: "Kitchen" },
-    ],
+    now,
+    chores: [{ id: "empty-bin", title: "Empty the bin", tickets: 2, room_name: "Kitchen", locked: true, waiting_on: ["the washing machine"] }],
+    done_recently: [{ chore_id: "clean-oven", title: "Clean the oven", room_name: "Kitchen", completed_at: "2026-10-19T09:00:00.000Z", tickets: 0, auto_done: false, can_undo: true }],
   }, "lydia");
-  assert.deepEqual(assigned?.chores.map((chore) => chore.id), ["empty-bin", "pack-bag", "open-window"]);
-  assert.equal(assigned?.chores[1].locked, true);
-  assert.equal(assigned?.chores[1].waiting_on, "the washing machine");
-  assert.equal(assigned?.chores[1].room_name, "Kitchen");
-  assert.deepEqual(assigned?.done_recently.map((chore) => chore.id), ["clean-oven"]);
-
-  const catalog = normalizeHouseholdList({
-    rooms: [{
-      id: "kitchen",
-      name: "Kitchen",
-      floor: 0,
-      chores: [
-        { id: "empty-bin", title: "Empty the bin", tickets: 1, claim: { child_id: "lydia", name: "Lydia", mine: true } },
-        { id: "clean-window", title: "Clean the window", tickets: 9, claim: null, held: false },
-        { id: "clean-oven", title: "Clean the oven", tickets: 0, can_undo: true },
-      ],
-    }],
-  }, "lydia");
-  assert.deepEqual(catalog?.chores.map((chore) => chore.id), ["empty-bin"]);
-  assert.deepEqual(catalog?.done_recently.map((chore) => [chore.id, chore.room_name]), [["clean-oven", "Kitchen"]]);
+  assert.equal(planned?.chores[0].waiting_on, "the washing machine");
+  assert.equal(planned?.chores[0].assigned_to_me, true);
+  assert.equal(planned?.done_recently[0].id, "clean-oven");
+  assert.equal(planned?.done_recently[0].can_undo, true);
 });
 
 let pool: pg.Pool;
@@ -199,9 +167,9 @@ test("a child sees the household list, with its ticket badge, and jobs stay put"
   assert.equal(listCall?.headerChild, "zoe");
   assert.equal(listCall?.queryChild, "zoe");
   const chores = flat(listed.body);
-  assert.deepEqual(listed.body.chores.map((chore: { id: string }) => chore.id), ["tidy-playroom"]);
+  assert.deepEqual(listed.body.chores.map((chore: { id: string }) => chore.id), []);
   assert.deepEqual(listed.body.done_recently.map((chore: { id: string }) => chore.id), ["clean-oven"]);
-  assert.equal(chores.some((chore) => chore.id === "clean-window" || chore.id === "pack-bag" || chore.id === "hoover-bathroom" || chore.id === "empty-bin"), false);
+  assert.equal(chores.some((chore) => ["clean-window", "pack-bag", "hoover-bathroom", "empty-bin", "tidy-playroom"].includes(chore.id)), false);
   const oven = chores.find((chore) => chore.id === "clean-oven")!;
   assert.equal(oven.room, "Kitchen");
   assert.equal(oven.place_name, "Oven");
@@ -209,27 +177,6 @@ test("a child sees the household list, with its ticket badge, and jobs stay put"
   assert.equal(oven.last_completed_by, "Zoe");
   assert.equal(oven.last_completed_by_me, true);
   assert.equal(oven.can_undo, true);
-  const bin = chores.find((chore) => chore.id === "empty-bin")!;
-  assert.equal(bin.claim?.mine, false);
-  assert.equal(bin.claim?.name, "Lydia");
-  const play = chores.find((chore) => chore.id === "tidy-playroom")!;
-  assert.equal(play.room, "Lounge");
-  assert.equal(play.tickets, 4);
-  assert.equal(play.held, true);
-  assert.equal(play.held_by, "Zoe");
-  assert.equal(play.held_by_me, true);
-  assert.equal(play.claim, null);
-  const hoover = chores.find((chore) => chore.id === "hoover-bathroom")!;
-  assert.equal(hoover.room, "Bathroom");
-  assert.equal(hoover.tickets, 2);
-  assert.equal(hoover.place_name, null);
-  const bag = chores.find((chore) => chore.id === "pack-bag")!;
-  assert.equal(bag.term_time_only, true);
-  assert.equal(bag.due_today, true);
-  assert.equal(bag.chore_kind, "routine");
-  const window = chores.find((chore) => chore.id === "clean-window")!;
-  assert.equal(window.place_name, "Kitchen window");
-  assert.equal(window.tickets, 9);
 
   const hannah = flat((await call("/api/kid/household-chores", HANNAH_IP)).body);
   assert.equal(hannah.some((chore) => chore.id === "wipe-sink"), false);

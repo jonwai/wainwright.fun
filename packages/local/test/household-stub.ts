@@ -82,7 +82,7 @@ export function demoState(): StandInState {
   return {
     claims: [{ chore_id: "empty-bin", child_id: "lydia", claimed_at: "2026-10-17T08:00:00.000Z" }],
     holds: [{ chore_id: "tidy-playroom", child_id: "zoe" }],
-    completions: [{ chore_id: "clean-oven", child_id: "zoe", at: "2026-10-17T09:00:00.000Z", tickets: 3, source_ref: "seed:clean-oven" }],
+    completions: [{ chore_id: "clean-oven", child_id: "zoe", at: new Date(Date.now() - 60 * 60 * 1000).toISOString(), tickets: 3, source_ref: "seed:clean-oven" }],
   };
 }
 
