@@ -16,6 +16,11 @@
  *   GET  {HOUSEHOLD_URL}/api/kid/chores?child=<id>
  *   POST {HOUSEHOLD_URL}/api/kid/chores/{id}/claim|complete|undo
  *
+ * The kid list is only chores claimed by or assigned to this child, plus a
+ * done-recently list. Household may still send the older room catalog; those
+ * unclaimed chores are dropped here. A locked chore carries `waiting_on`.
+ * Assignment itself stays in Household. The Tickets app does not offer claim.
+ *
  * Off unless HOUSEHOLD_CHORES=1 and HOUSEHOLD_URL is set. If Household does not
  * answer, the section is hidden and the jobs list is unchanged.
  */
@@ -62,6 +67,14 @@ export interface HouseholdChoreView {
   last_completed_by: string | null;
   last_completed_by_me: boolean;
   can_undo: boolean;
+  /** Home Assistant area name, when Household sent one. */
+  room_name: string | null;
+  /** Set when this chore is assigned to the child but blocked. */
+  locked: boolean;
+  /** What a locked chore is waiting on, already a short label. */
+  waiting_on: string | null;
+  /** Claimed, held, or flagged assigned for this child. */
+  assigned_to_me: boolean;
 }
 
 export interface HouseholdRoomView {
@@ -96,70 +109,153 @@ function heldBy(value: unknown, child: ChildRef): { name: string | null; mine: b
   return { name, mine: id === child.id || name === child.name || record.mine === true };
 }
 
+function waitingLabel(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number" && Number.isFinite(value)) return null;
+  if (Array.isArray(value)) {
+    const parts = value.map(waitingLabel).filter((part): part is string => Boolean(part));
+    return parts.length > 0 ? parts.join(", ") : null;
+  }
+  const record = asRecord(value);
+  if (!record) return null;
+  const direct = asString(record.title) ?? asString(record.name) ?? asString(record.label) ?? asString(record.reason);
+  if (direct) return direct;
+  return waitingLabel(record.chore ?? record.task ?? record.waiting_on);
+}
+
+function roomNameOf(chore: Record<string, unknown>, fallback: string | null): string | null {
+  const direct = asString(chore.room_name) ?? asString(chore.roomName);
+  if (direct) return direct;
+  const room = asRecord(chore.room);
+  return asString(room?.name) ?? fallback;
+}
+
+function parseChore(entry: unknown, child: ChildRef, fallbackRoom: string | null): ParsedChore | null {
+  const chore = asRecord(entry);
+  const id = asString(chore?.id);
+  const title = asString(chore?.title);
+  if (!chore || !id || !title) return null;
+  const claimRecord = asRecord(chore.claim);
+  const claimId = asString(claimRecord?.child_id);
+  const claim: HouseholdClaim | null = claimRecord && claimId
+    ? {
+        child_id: claimId,
+        name: asString(claimRecord.name) ?? claimId,
+        mine: claimRecord.mine === true || claimId === child.id,
+      }
+    : null;
+  const holder = heldBy(chore.held_by, child);
+  const tickets = Number(chore.tickets);
+  const waiting = waitingLabel(chore.waiting_on ?? chore.waitingOn);
+  const assignedFlag = chore.assigned === true || chore.assigned_to_me === true || chore.auto_assigned === true;
+  const locked = chore.can_undo !== true && (chore.locked === true || chore.waiting === true || chore.status === "locked" || chore.status === "waiting" || waiting !== null);
+  const heldByMe = chore.held === true && holder.mine;
+  const someoneElse = claim !== null && !claim.mine && !heldByMe && !assignedFlag && !locked;
+  return {
+    id,
+    title,
+    job: asString(chore.job),
+    chore_kind: asString(chore.chore_kind) ?? "job",
+    target_type: asString(chore.target_type) ?? "room",
+    target_id: asString(chore.target_id),
+    place_name: asString(chore.place_name),
+    tickets: Number.isFinite(tickets) ? tickets : 0,
+    term_time_only: chore.term_time_only === true,
+    due_today: chore.due_today === true,
+    allowed_claimers: Array.isArray(chore.allowed_claimers) ? chore.allowed_claimers.map(String) : [],
+    claim,
+    held: chore.held === true,
+    held_by: holder.name,
+    held_by_me: heldByMe,
+    last_completed_at: asString(chore.last_completed_at),
+    last_completed_by: asString(chore.last_completed_by),
+    last_completed_by_me: chore.last_completed_by_me === true,
+    can_undo: chore.can_undo === true,
+    room_name: roomNameOf(chore, fallbackRoom),
+    locked,
+    waiting_on: waiting,
+    assigned_to_me: claim?.mine === true || heldByMe || assignedFlag,
+    forChild: !someoneElse && (claim?.mine === true || heldByMe || assignedFlag || locked || chore.can_undo === true),
+  };
+}
+
+interface ParsedChore extends HouseholdChoreView {
+  /** True when this child claimed it, holds it, is assigned it, or it is locked for them. */
+  forChild: boolean;
+}
+
 /**
- * Turns Household's GET /api/kid/chores body into the kid-UI list.
+ * Turns Household's GET /api/kid/chores body into this child's chores.
  * `tickets` is copied through; Tickets does not recompute it.
- * Returns null when the body is not that list.
+ *
+ * A `chores` array is the current kid list (claimed and auto-assigned only).
+ * Older payloads send every visible chore under `rooms`; unclaimed ones are dropped.
+ * `done_recently` (or `doneRecently`) is the completed section.
+ * Returns null when the body is neither shape.
  */
-export function normalizeHouseholdList(payload: unknown, childId: string): { rooms: HouseholdRoomView[] } | null {
+export function normalizeHouseholdList(
+  payload: unknown,
+  childId: string,
+): { chores: HouseholdChoreView[]; done_recently: HouseholdChoreView[] } | null {
   const body = asRecord(payload);
-  if (!body || !Array.isArray(body.rooms)) return null;
+  if (!body) return null;
+  const doneSource = Array.isArray(body.done_recently) ? body.done_recently : Array.isArray(body.doneRecently) ? body.doneRecently : null;
+  const assignedSource = Array.isArray(body.chores) ? body.chores : null;
+  const hasRooms = Array.isArray(body.rooms);
+  if (!hasRooms && !assignedSource && !doneSource) return null;
+
   const childRecord = asRecord(body.child);
   const child: ChildRef = {
     id: asString(childRecord?.id) ?? childId,
     name: asString(childRecord?.name) ?? childId,
   };
-  const rooms: HouseholdRoomView[] = [];
-  for (const item of body.rooms) {
-    const room = asRecord(item);
-    if (!room || !Array.isArray(room.chores)) continue;
-    const chores: HouseholdChoreView[] = [];
-    for (const entry of room.chores) {
-      const chore = asRecord(entry);
-      const id = asString(chore?.id);
-      const title = asString(chore?.title);
-      if (!chore || !id || !title) continue;
-      const claimRecord = asRecord(chore.claim);
-      const claimId = asString(claimRecord?.child_id);
-      const claim: HouseholdClaim | null = claimRecord && claimId
-        ? {
-            child_id: claimId,
-            name: asString(claimRecord.name) ?? claimId,
-            mine: claimRecord.mine === true || claimId === child.id,
-          }
-        : null;
-      const holder = heldBy(chore.held_by, child);
-      const tickets = Number(chore.tickets);
-      chores.push({
-        id,
-        title,
-        job: asString(chore.job),
-        chore_kind: asString(chore.chore_kind) ?? "job",
-        target_type: asString(chore.target_type) ?? "room",
-        target_id: asString(chore.target_id),
-        place_name: asString(chore.place_name),
-        tickets: Number.isFinite(tickets) ? tickets : 0,
-        term_time_only: chore.term_time_only === true,
-        due_today: chore.due_today === true,
-        allowed_claimers: Array.isArray(chore.allowed_claimers) ? chore.allowed_claimers.map(String) : [],
-        claim,
-        held: chore.held === true,
-        held_by: holder.name,
-        held_by_me: chore.held === true && holder.mine,
-        last_completed_at: asString(chore.last_completed_at),
-        last_completed_by: asString(chore.last_completed_by),
-        last_completed_by_me: chore.last_completed_by_me === true,
-        can_undo: chore.can_undo === true,
-      });
+
+  const incoming: ParsedChore[] = [];
+  if (assignedSource) {
+    for (const entry of assignedSource) {
+      const chore = parseChore(entry, child, null);
+      if (!chore) continue;
+      // This array is already this child's list. Keep it unless it is clearly someone else's claim.
+      const someoneElse = chore.claim !== null && !chore.claim.mine && !chore.held_by_me && !chore.assigned_to_me && !chore.locked;
+      if (!someoneElse) incoming.push({ ...chore, forChild: true });
     }
-    rooms.push({
-      id: asString(room.id) ?? "",
-      name: asString(room.name) ?? "Room",
-      floor: Number.isFinite(Number(room.floor)) ? Number(room.floor) : null,
-      chores,
-    });
+  } else if (hasRooms) {
+    for (const item of body.rooms as unknown[]) {
+      const room = asRecord(item);
+      if (!room || !Array.isArray(room.chores)) continue;
+      const name = asString(room.name);
+      for (const entry of room.chores) {
+        const chore = parseChore(entry, child, name);
+        if (chore?.forChild) incoming.push(chore);
+      }
+    }
   }
-  return { rooms: rooms.filter((room) => room.chores.length > 0) };
+
+  const done: HouseholdChoreView[] = [];
+  const doneIds = new Set<string>();
+  const pushDone = (chore: ParsedChore) => {
+    if (doneIds.has(chore.id)) return;
+    doneIds.add(chore.id);
+    done.push(strip(chore));
+  };
+  if (doneSource) {
+    for (const entry of doneSource) {
+      const chore = parseChore(entry, child, null);
+      if (chore) pushDone(chore);
+    }
+  }
+  const chores: HouseholdChoreView[] = [];
+  for (const chore of incoming) {
+    if (doneIds.has(chore.id) || chore.can_undo) pushDone(chore);
+    else chores.push(strip(chore));
+  }
+  return { chores, done_recently: done };
+}
+
+function strip(chore: ParsedChore): HouseholdChoreView {
+  const { forChild, ...view } = chore;
+  void forChild;
+  return view;
 }
 
 async function readJson(response: Response): Promise<Record<string, unknown>> {
@@ -186,7 +282,7 @@ function childHeaders(childId: string): Record<string, string> {
 export async function fetchHouseholdList(
   link: HouseholdLink,
   childId: string,
-): Promise<{ ok: true; rooms: HouseholdRoomView[] } | { ok: false; down: boolean; reason: string }> {
+): Promise<{ ok: true; chores: HouseholdChoreView[]; done_recently: HouseholdChoreView[] } | { ok: false; down: boolean; reason: string }> {
   try {
     const url = new URL("/api/kid/chores", link.url);
     url.searchParams.set("child", childId);
@@ -197,7 +293,7 @@ export async function fetchHouseholdList(
     }
     const listed = normalizeHouseholdList(body, childId);
     if (!listed) return { ok: false, down: false, reason: "household list was not the kid chores payload" };
-    return { ok: true, rooms: listed.rooms };
+    return { ok: true, chores: listed.chores, done_recently: listed.done_recently };
   } catch {
     return { ok: false, down: true, reason: "household did not answer" };
   }
@@ -238,7 +334,7 @@ export async function handleHouseholdChores(
   link: HouseholdLink,
   log: (line: string) => void,
 ): Promise<{ status: number; body: unknown }> {
-  const hidden = { status: 200, body: { enabled: false, rooms: [] as HouseholdRoomView[] } };
+  const hidden = { status: 200, body: { enabled: false, chores: [] as HouseholdChoreView[], done_recently: [] as HouseholdChoreView[] } };
   if (!link.enabled || !link.url) return hidden;
 
   if (method === "GET" && resourceId === "household-chores") {
@@ -251,7 +347,7 @@ export async function handleHouseholdChores(
       log(`household chores hidden: ${listed.reason}`);
       return hidden;
     }
-    return { status: 200, body: { enabled: true, rooms: listed.rooms } };
+    return { status: 200, body: { enabled: true, chores: listed.chores, done_recently: listed.done_recently } };
   }
 
   const match = /^household-chores\/([^/]+)\/(claim|complete|undo)$/.exec(resourceId);

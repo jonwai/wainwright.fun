@@ -72,18 +72,53 @@ test("the kid list copies Household's tickets and held_by, and ignores anything 
     }],
   }, "zoe");
   assert.ok(listed);
-  assert.equal(listed.rooms[0].chores[0].tickets, 9);
-  assert.equal(listed.rooms[0].chores[0].held_by, "Zoe");
-  assert.equal(listed.rooms[0].chores[0].held_by_me, true);
+  assert.equal(listed.chores[0].tickets, 9);
+  assert.equal(listed.chores[0].held_by, "Zoe");
+  assert.equal(listed.chores[0].held_by_me, true);
+  assert.equal(listed.chores[0].room_name, "Lounge");
   const objectHolder = normalizeHouseholdList({
     child: { id: "hannah", name: "Hannah" },
     rooms: [{ id: "bath", name: "Bathroom", floor: 1, chores: [{
       id: "wipe-sink", title: "Wipe the sink", tickets: 1, held: true, held_by: { child_id: "hannah", name: "Hannah", mine: true }, claim: null,
     }] }],
   }, "hannah");
-  assert.equal(objectHolder?.rooms[0].chores[0].held_by_me, true);
-  assert.equal(objectHolder?.rooms[0].chores[0].tickets, 1);
-  assert.equal(normalizeHouseholdList({ chores: [] }, "zoe"), null);
+  assert.equal(objectHolder?.chores[0].held_by_me, true);
+  assert.equal(objectHolder?.chores[0].tickets, 1);
+  assert.equal(normalizeHouseholdList({ now: "2026-10-17T12:00:00.000Z" }, "zoe"), null);
+  assert.deepEqual(normalizeHouseholdList({ chores: [] }, "zoe"), { chores: [], done_recently: [] });
+
+  const assigned = normalizeHouseholdList({
+    child: { id: "lydia", name: "Lydia" },
+    chores: [
+      { id: "empty-bin", title: "Empty the bin", tickets: 2, claim: { child_id: "lydia", name: "Lydia", mine: true }, room_name: "Kitchen" },
+      { id: "pack-bag", title: "Pack the school bag", tickets: 1, assigned: true, locked: true, waiting_on: { title: "the washing machine" }, room: { name: "Kitchen" } },
+      { id: "wipe-sink", title: "Wipe the sink", tickets: 1, claim: { child_id: "hannah", name: "Hannah", mine: false } },
+      { id: "open-window", title: "Open the window", tickets: 1 },
+    ],
+    done_recently: [
+      { id: "clean-oven", title: "Clean the oven", tickets: 0, can_undo: true, room_name: "Kitchen" },
+    ],
+  }, "lydia");
+  assert.deepEqual(assigned?.chores.map((chore) => chore.id), ["empty-bin", "pack-bag", "open-window"]);
+  assert.equal(assigned?.chores[1].locked, true);
+  assert.equal(assigned?.chores[1].waiting_on, "the washing machine");
+  assert.equal(assigned?.chores[1].room_name, "Kitchen");
+  assert.deepEqual(assigned?.done_recently.map((chore) => chore.id), ["clean-oven"]);
+
+  const catalog = normalizeHouseholdList({
+    rooms: [{
+      id: "kitchen",
+      name: "Kitchen",
+      floor: 0,
+      chores: [
+        { id: "empty-bin", title: "Empty the bin", tickets: 1, claim: { child_id: "lydia", name: "Lydia", mine: true } },
+        { id: "clean-window", title: "Clean the window", tickets: 9, claim: null, held: false },
+        { id: "clean-oven", title: "Clean the oven", tickets: 0, can_undo: true },
+      ],
+    }],
+  }, "lydia");
+  assert.deepEqual(catalog?.chores.map((chore) => chore.id), ["empty-bin"]);
+  assert.deepEqual(catalog?.done_recently.map((chore) => [chore.id, chore.room_name]), [["clean-oven", "Kitchen"]]);
 });
 
 let pool: pg.Pool;
@@ -133,8 +168,8 @@ async function call(pathname: string, ip: string, init: { method?: string; heade
   return { status: response.status, body: text ? JSON.parse(text) : null };
 }
 
-function flat(body: { rooms: { name: string; chores: Record<string, unknown>[] }[] }) {
-  return body.rooms.flatMap((room) => room.chores.map((chore) => ({ ...chore, room: room.name }))) as {
+function flat(body: { chores: Record<string, unknown>[]; done_recently: Record<string, unknown>[] }) {
+  return [...body.chores, ...body.done_recently].map((chore) => ({ ...chore, room: chore.room_name })) as {
     id: string;
     title: string;
     room: string;
@@ -164,7 +199,9 @@ test("a child sees the household list, with its ticket badge, and jobs stay put"
   assert.equal(listCall?.headerChild, "zoe");
   assert.equal(listCall?.queryChild, "zoe");
   const chores = flat(listed.body);
-  assert.deepEqual(chores.map((chore) => chore.id).sort(), ["clean-oven", "clean-window", "empty-bin", "hoover-bathroom", "pack-bag", "tidy-playroom"]);
+  assert.deepEqual(listed.body.chores.map((chore: { id: string }) => chore.id), ["tidy-playroom"]);
+  assert.deepEqual(listed.body.done_recently.map((chore: { id: string }) => chore.id), ["clean-oven"]);
+  assert.equal(chores.some((chore) => chore.id === "clean-window" || chore.id === "pack-bag" || chore.id === "hoover-bathroom" || chore.id === "empty-bin"), false);
   const oven = chores.find((chore) => chore.id === "clean-oven")!;
   assert.equal(oven.room, "Kitchen");
   assert.equal(oven.place_name, "Oven");
@@ -195,7 +232,7 @@ test("a child sees the household list, with its ticket badge, and jobs stay put"
   assert.equal(window.tickets, 9);
 
   const hannah = flat((await call("/api/kid/household-chores", HANNAH_IP)).body);
-  assert.equal(hannah.some((chore) => chore.id === "wipe-sink"), true);
+  assert.equal(hannah.some((chore) => chore.id === "wipe-sink"), false);
   assert.equal(hannah.some((chore) => chore.id === "make-bed"), false);
 
   const jobs = await call("/api/kid/tasks", ZOE);
@@ -302,7 +339,7 @@ test("a switched-off flag or a silent household hides the section and leaves job
   const down = await fetch(`${downBase}/api/kid/household-chores`, { headers: { "x-real-ip": ZOE } });
   const downBody = await down.json();
   assert.equal(down.status, 200);
-  assert.deepEqual(downBody, { enabled: false, rooms: [] });
+  assert.deepEqual(downBody, { enabled: false, chores: [], done_recently: [] });
   const post = await fetch(`${downBase}/api/kid/household-chores/hoover-bathroom/claim`, { method: "POST", headers: { "x-real-ip": ZOE } });
   const postBody = await post.json();
   assert.equal(post.status, 200);
@@ -320,7 +357,7 @@ test("a switched-off flag or a silent household hides the section and leaves job
   await new Promise<void>((resolve) => gapServer.listen(0, "127.0.0.1", resolve));
   const gapBase = `http://127.0.0.1:${(gapServer.address() as AddressInfo).port}`;
   const hidden = await fetch(`${gapBase}/api/kid/household-chores`, { headers: { "x-real-ip": ZOE } });
-  assert.deepEqual(await hidden.json(), { enabled: false, rooms: [] });
+  assert.deepEqual(await hidden.json(), { enabled: false, chores: [], done_recently: [] });
   const awardsBefore = (await pool.query("SELECT count(*)::int AS n FROM tickets.awards")).rows[0].n;
   const gap = await fetch(`${gapBase}/api/kid/household-chores/hoover-bathroom/claim`, { method: "POST", headers: { "x-real-ip": ZOE } });
   const gapBody = await gap.json();

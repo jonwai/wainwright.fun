@@ -277,21 +277,25 @@ export interface HouseholdChore {
   last_completed_by: string | null;
   last_completed_by_me: boolean;
   can_undo: boolean;
-}
-
-export interface HouseholdRoom {
-  id: string;
-  name: string;
-  floor: number | null;
-  chores: HouseholdChore[];
+  /** Home Assistant area name, when Household sent one. */
+  room_name: string | null;
+  /** Assigned to this child, but blocked until waiting_on is done. */
+  locked: boolean;
+  /** Short label for what a locked chore is waiting on. */
+  waiting_on: string | null;
+  /** Claimed, held, or auto-assigned to this child. */
+  assigned_to_me: boolean;
 }
 
 export interface HouseholdChoresState {
   enabled: boolean;
-  rooms: HouseholdRoom[];
+  /** Claimed or assigned chores that are not done yet, including locked ones. */
+  chores: HouseholdChore[];
+  /** Household's recently completed chores for this child. */
+  done_recently: HouseholdChore[];
 }
 
-const HOUSEHOLD_HIDDEN: HouseholdChoresState = { enabled: false, rooms: [] };
+const HOUSEHOLD_HIDDEN: HouseholdChoresState = { enabled: false, chores: [], done_recently: [] };
 
 /** House chores. A failure or a switched-off flag hides the section. */
 export async function fetchHouseholdChores(): Promise<HouseholdChoresState> {
@@ -299,7 +303,11 @@ export async function fetchHouseholdChores(): Promise<HouseholdChoresState> {
     const response = await kidFetch("/kid/household-chores");
     if (!response.ok) return HOUSEHOLD_HIDDEN;
     const data = await response.json();
-    return { enabled: data.enabled === true, rooms: Array.isArray(data.rooms) ? data.rooms : [] };
+    return {
+      enabled: data.enabled === true,
+      chores: Array.isArray(data.chores) ? data.chores : [],
+      done_recently: Array.isArray(data.done_recently) ? data.done_recently : [],
+    };
   } catch {
     return HOUSEHOLD_HIDDEN;
   }
@@ -312,7 +320,7 @@ export interface HouseholdActionOutcome {
   tickets?: number;
 }
 
-async function householdAction(choreId: string, action: "claim" | "complete" | "undo"): Promise<HouseholdActionOutcome> {
+async function householdAction(choreId: string, action: "complete" | "undo"): Promise<HouseholdActionOutcome> {
   const response = await kidFetch(`/kid/household-chores/${encodeURIComponent(choreId)}/${action}`, { method: "POST" });
   const data = await response.json().catch(() => ({}));
   if (data.enabled === false) return { hidden: true };
@@ -320,10 +328,6 @@ async function householdAction(choreId: string, action: "claim" | "complete" | "
     throw new Error(typeof data.error === "string" ? data.error : "Could not update that chore");
   }
   return { hidden: false, tickets: typeof data.tickets === "number" ? data.tickets : undefined };
-}
-
-export async function claimHouseholdChore(choreId: string): Promise<HouseholdActionOutcome> {
-  return householdAction(choreId, "claim");
 }
 
 export async function completeHouseholdChore(choreId: string): Promise<HouseholdActionOutcome> {

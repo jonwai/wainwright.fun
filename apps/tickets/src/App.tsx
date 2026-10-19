@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { QrScanner } from "./components/QrScanner";
 import {
   chooseChild,
-  claimHouseholdChore,
   completeHouseholdChore,
   completeTask,
   fetchHouseholdChores,
@@ -27,7 +26,7 @@ import {
   type TaskHistoryEntry,
   type TasksState,
 } from "./api";
-import { splitHousehold, splitTasks } from "./jobs-layout";
+import { splitTasks } from "./jobs-layout";
 
 type Screen = "jobs" | "rewards" | "history";
 
@@ -78,11 +77,10 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [household, setHousehold] = useState<HouseholdChoresState | null>(null);
   const [justHousehold, setJustHousehold] = useState<string | null>(null);
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
 
   const loadHousehold = useCallback(async () => {
     if (!LOCAL_AUTH) {
-      setHousehold({ enabled: false, rooms: [] });
+      setHousehold({ enabled: false, chores: [], done_recently: [] });
       return;
     }
     setHousehold(await fetchHouseholdChores());
@@ -138,7 +136,7 @@ export default function App() {
         setCashedIn(historyOutcome.value.redemptions);
       }
 
-      if (householdOutcome.status === "rejected") setHousehold({ enabled: false, rooms: [] });
+      if (householdOutcome.status === "rejected") setHousehold({ enabled: false, chores: [], done_recently: [] });
 
       const failure = [tasksOutcome, rewardsOutcome, historyOutcome].find(
         (outcome) => outcome.status === "rejected"
@@ -275,16 +273,14 @@ export default function App() {
   );
 
   const householdAct = useCallback(
-    async (chore: HouseholdChore, action: "claim" | "complete" | "undo") => {
+    async (chore: HouseholdChore, action: "complete" | "undo") => {
       if (busyId) return;
       setBusyId(chore.id);
       setError(null);
       try {
-        const run =
-          action === "claim" ? claimHouseholdChore : action === "complete" ? completeHouseholdChore : undoHouseholdChore;
-        const outcome = await run(chore.id);
+        const outcome = await (action === "complete" ? completeHouseholdChore(chore.id) : undoHouseholdChore(chore.id));
         if (outcome.hidden) {
-          setHousehold({ enabled: false, rooms: [] });
+          setHousehold({ enabled: false, chores: [], done_recently: [] });
           setJustHousehold(null);
         } else if (action === "complete") {
           const tickets = outcome.tickets ?? chore.tickets;
@@ -480,10 +476,10 @@ export default function App() {
 
   const ticketsLeft = state.spendable_tickets;
   const totalTickets = state.total_tickets;
-  const house = splitHousehold(household?.enabled ? household.rooms : []);
+  const myChores = household?.enabled ? household.chores : [];
+  const doneChores = household?.enabled ? household.done_recently : [];
   const jobs = splitTasks(state.tasks);
-  const showRooms = house.rooms.length > 0;
-  const activeRoom = house.rooms.find((room) => room.id === selectedRoomId) ?? house.rooms[0] ?? null;
+  const showChores = myChores.length > 0 || doneChores.length > 0;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -568,19 +564,17 @@ export default function App() {
       <main className="flex-1 px-6 pb-10 max-w-3xl mx-auto w-full">
         {screen === "jobs" ? (
           <div className="flex flex-col gap-8">
-            {house.claimed.length > 0 && (
+            {myChores.length > 0 && (
               <section className="flex flex-col gap-4">
                 <div>
-                  <h2 className="text-xl font-extrabold">My claimed chores</h2>
-                  <p className="text-sm text-muted">You said you'd do these.</p>
+                  <h2 className="text-xl font-extrabold">My chores</h2>
+                  <p className="text-sm text-muted">Claimed or assigned to you.</p>
                 </div>
-                {house.claimed.map(({ chore, roomId, roomName }) => (
+                {myChores.map((chore) => (
                   <HouseholdChoreCard
-                    key={`${roomId}/${chore.id}`}
+                    key={chore.id}
                     chore={chore}
-                    roomName={roomName}
                     busy={busyId === chore.id}
-                    onClaim={() => void householdAct(chore, "claim")}
                     onComplete={() => void householdAct(chore, "complete")}
                     onUndo={() => void householdAct(chore, "undo")}
                   />
@@ -588,7 +582,7 @@ export default function App() {
               </section>
             )}
 
-            {jobs.open.length === 0 && !showRooms && house.claimed.length === 0 ? (
+            {jobs.open.length === 0 && myChores.length === 0 ? (
               <div className="text-center py-10">
                 <div className="text-6xl mb-3">🎈</div>
                 <p className="text-xl font-bold">No jobs yet!</p>
@@ -597,7 +591,7 @@ export default function App() {
             ) : (
               jobs.open.length > 0 && (
                 <section className="flex flex-col gap-4">
-                  {showRooms && <h2 className="text-xl font-extrabold">My jobs</h2>}
+                  {showChores && <h2 className="text-xl font-extrabold">My jobs</h2>}
                   {jobs.open.map((task) => (
                     <JobCard
                       key={task.task_id}
@@ -611,62 +605,19 @@ export default function App() {
               )
             )}
 
-            {showRooms && activeRoom && (
-              <section className="flex flex-col gap-4">
-                <div>
-                  <h2 className="text-xl font-extrabold">Around the house</h2>
-                  <p className="text-sm text-muted">Pick a room. Tickets grow the longer a chore waits.</p>
-                </div>
-                <div role="tablist" aria-label="Rooms" className="flex gap-2 overflow-x-auto pb-1">
-                  {house.rooms.map((room) => {
-                    const selected = room.id === activeRoom.id;
-                    return (
-                      <button
-                        key={room.id || room.name}
-                        type="button"
-                        role="tab"
-                        id={`room-tab-${room.id || room.name}`}
-                        aria-selected={selected}
-                        aria-controls="room-panel"
-                        onClick={() => setSelectedRoomId(room.id)}
-                        className={`shrink-0 min-h-12 px-5 rounded-full text-base font-extrabold cursor-pointer touch-manipulation border transition-colors ${
-                          selected
-                            ? "bg-accent text-white border-transparent"
-                            : "bg-surface-solid text-accent-strong border-border"
-                        }`}
-                      >
-                        {room.name}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div
-                  role="tabpanel"
-                  id="room-panel"
-                  aria-labelledby={`room-tab-${activeRoom.id || activeRoom.name}`}
-                  className="flex flex-col gap-3"
-                >
-                  {activeRoom.chores.length === 0 ? (
-                    <p className="text-center text-muted py-4">Nothing left in {activeRoom.name}.</p>
-                  ) : (
-                    activeRoom.chores.map((chore) => (
-                      <HouseholdChoreCard
-                        key={chore.id}
-                        chore={chore}
-                        busy={busyId === chore.id}
-                        onClaim={() => void householdAct(chore, "claim")}
-                        onComplete={() => void householdAct(chore, "complete")}
-                        onUndo={() => void householdAct(chore, "undo")}
-                      />
-                    ))
-                  )}
-                </div>
-              </section>
-            )}
-
-            {(jobs.done.length > 0 || house.done.length > 0) && (
+            {(jobs.done.length > 0 || doneChores.length > 0) && (
               <section className="flex flex-col gap-4">
                 <h2 className="text-xl font-extrabold">Done</h2>
+                {doneChores.map((chore) => (
+                  <HouseholdChoreCard
+                    key={chore.id}
+                    chore={chore}
+                    done
+                    busy={busyId === chore.id}
+                    onComplete={() => void householdAct(chore, "complete")}
+                    onUndo={() => void householdAct(chore, "undo")}
+                  />
+                ))}
                 {jobs.done.map((task) => (
                   <JobCard
                     key={task.task_id}
@@ -674,17 +625,6 @@ export default function App() {
                     busy={busyId === task.task_id}
                     onComplete={() => complete(task)}
                     onUndo={() => undo(task)}
-                  />
-                ))}
-                {house.done.map(({ chore, roomId, roomName }) => (
-                  <HouseholdChoreCard
-                    key={`${roomId}/${chore.id}`}
-                    chore={chore}
-                    roomName={roomName}
-                    busy={busyId === chore.id}
-                    onClaim={() => void householdAct(chore, "claim")}
-                    onComplete={() => void householdAct(chore, "complete")}
-                    onUndo={() => void householdAct(chore, "undo")}
                   />
                 ))}
               </section>
@@ -1048,45 +988,48 @@ function JobCard({
 
 function HouseholdChoreCard({
   chore,
-  roomName,
+  done = false,
   busy,
-  onClaim,
   onComplete,
   onUndo,
 }: {
   chore: HouseholdChore;
-  roomName?: string;
+  done?: boolean;
   busy: boolean;
-  onClaim: () => void;
   onComplete: () => void;
   onUndo: () => void;
 }) {
-  const mine = chore.claim?.mine === true || chore.held_by_me;
-  const taken = (chore.claim !== null && !chore.claim.mine) || (chore.held && !chore.held_by_me && !chore.claim?.mine);
   const routine = chore.chore_kind === "routine";
+  const waiting = chore.locked && !done;
   return (
     <div
       className={`bg-surface border rounded-xl p-4 backdrop-blur-md shadow-card ${
-        chore.can_undo ? "border-green-300" : mine ? "border-accent" : "border-border"
+        done ? "border-green-300" : waiting ? "border-border" : "border-accent"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          {roomName && (
-            <p className="text-xs font-extrabold uppercase tracking-wide text-muted mb-1">{roomName}</p>
+          {chore.room_name && (
+            <p className="text-xs font-extrabold uppercase tracking-wide text-muted mb-1">{chore.room_name}</p>
           )}
           <h2 className="text-lg font-extrabold leading-tight">{chore.title}</h2>
           {chore.place_name && <p className="text-muted text-sm mt-1">{chore.place_name}</p>}
           <p className="text-xs text-muted mt-1">
-            {chore.last_completed_at
-              ? `Last done ${friendlyDate(chore.last_completed_at)} by ${chore.last_completed_by ?? "someone"}`
-              : "Not done yet"}
-            {chore.held_by_me ? " · Held for you" : ""}
-            {chore.claim?.mine ? " · You claimed this" : ""}
-            {chore.claim && !chore.claim.mine ? ` · ${chore.claim.name} claimed this` : ""}
-            {chore.held && !chore.held_by_me && chore.held_by ? ` · Held for ${chore.held_by}` : ""}
+            {done && chore.last_completed_at
+              ? `Last done ${friendlyDate(chore.last_completed_at)} by ${chore.last_completed_by ?? "you"}`
+              : done
+                ? "Done"
+                : "Not done yet"}
+            {!waiting && chore.held_by_me ? " · Held for you" : ""}
+            {!waiting && chore.claim?.mine ? " · You claimed this" : ""}
+            {!waiting && !chore.held_by_me && !chore.claim?.mine && chore.assigned_to_me ? " · Assigned to you" : ""}
           </p>
-          {(routine || chore.term_time_only || chore.due_today) && (
+          {waiting && (
+            <p className="text-sm font-extrabold text-accent-strong mt-1">
+              {chore.waiting_on ? `Waiting on ${chore.waiting_on}` : "Waiting"}
+            </p>
+          )}
+          {!waiting && (routine || chore.term_time_only || chore.due_today) && (
             <p className="text-xs font-bold text-accent-strong mt-1">
               {[routine ? "Routine" : null, chore.term_time_only ? "Term time" : null, chore.due_today ? "Due today" : null].filter(Boolean).join(" · ")}
             </p>
@@ -1098,20 +1041,23 @@ function HouseholdChoreCard({
         </div>
       </div>
       <div className="flex items-center gap-2 mt-3">
-        {chore.can_undo && (
+        {done ? (
           <>
             <span className="inline-flex items-center gap-1 text-success font-bold text-sm">✓ Done</span>
-            <button
-              type="button"
-              className="min-h-10 px-4 rounded-md text-sm font-semibold cursor-pointer border border-border bg-surface-solid transition-colors hover:bg-bg-accent disabled:opacity-50"
-              onClick={onUndo}
-              disabled={busy}
-            >
-              Undo
-            </button>
+            {chore.can_undo && (
+              <button
+                type="button"
+                className="ml-auto min-h-10 px-4 rounded-md text-sm font-semibold cursor-pointer border border-border bg-surface-solid transition-colors hover:bg-bg-accent disabled:opacity-50"
+                onClick={onUndo}
+                disabled={busy}
+              >
+                Undo
+              </button>
+            )}
           </>
-        )}
-        {mine ? (
+        ) : waiting ? (
+          <span className="ml-auto text-sm font-extrabold text-muted">Waiting</span>
+        ) : (
           <button
             type="button"
             className="ml-auto min-h-12 px-6 rounded-md text-white text-base font-extrabold border-none cursor-pointer bg-accent transition-colors hover:bg-accent-strong disabled:opacity-50"
@@ -1119,17 +1065,6 @@ function HouseholdChoreCard({
             disabled={busy}
           >
             I did it! 🎉
-          </button>
-        ) : taken ? (
-          <span className="ml-auto text-sm font-semibold text-muted">Already claimed</span>
-        ) : (
-          <button
-            type="button"
-            className="ml-auto min-h-12 px-6 rounded-md text-white text-base font-extrabold border-none cursor-pointer bg-accent transition-colors hover:bg-accent-strong disabled:opacity-50"
-            onClick={onClaim}
-            disabled={busy}
-          >
-            I'll do this
           </button>
         )}
         {busy && <div className="spinner" />}
