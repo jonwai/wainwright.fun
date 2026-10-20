@@ -8,6 +8,7 @@ import {
   deleteTask,
   getBoard,
   getChildren,
+  getHouseholdConsumables,
   getRewardRedemptions,
   getTaskCompletions,
   getTasks,
@@ -23,6 +24,7 @@ import {
   type BoardEntry,
   type BoardRepeat,
   type Child,
+  type HouseholdConsumableOption,
   type Reward,
   type RewardLimitType,
   type RewardPeriod,
@@ -30,6 +32,14 @@ import {
   type Task,
   type TaskCompletion,
 } from "./api";
+
+function consumableOf(reward: Reward | undefined): { category: string; sheets: number } | null {
+  const spec = reward?.household_consumable;
+  const category = spec?.category?.trim() ?? "";
+  const sheets = Number(spec?.sheets);
+  if (!category || !Number.isInteger(sheets) || sheets < 1) return null;
+  return { category, sheets };
+}
 
 function slugify(text: string): string {
   return text
@@ -337,6 +347,8 @@ export function TasksPanel({ accessToken }: { accessToken: string }) {
   const [rewardEdit, setRewardEdit] = useState<RewardEditDraft | null>(null);
   const [boardDraft, setBoardDraft] = useState<BoardDraft>(EMPTY_BOARD_DRAFT);
   const [bonusDraft, setBonusDraft] = useState<BonusDraft>(EMPTY_BONUS_DRAFT);
+  const [papers, setPapers] = useState<Record<string, { options: HouseholdConsumableOption[]; warning: string | null; choice: string; loaded: boolean }>>({});
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -366,6 +378,52 @@ export function TasksPanel({ accessToken }: { accessToken: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  const paperSpecs = new Map<string, { category: string; sheets: number }>();
+  for (const redemption of redemptions) {
+    if (redemption.status !== "pending") continue;
+    const spec = consumableOf(rewards?.find((reward) => reward.reward_id === redemption.reward_id));
+    if (spec) paperSpecs.set(`${spec.category}:${spec.sheets}`, spec);
+  }
+  const paperSpecKey = [...paperSpecs.keys()].sort().join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+    for (const [key, spec] of paperSpecs) {
+      getHouseholdConsumables(accessToken, spec.category, spec.sheets)
+        .then((result) => {
+          if (cancelled) return;
+          setPapers((prev) => ({
+            ...prev,
+            [key]: {
+              options: result.options,
+              warning: result.warning,
+              choice: result.options.some((option) => option.product_slug === prev[key]?.choice)
+                ? prev[key].choice
+                : (result.options[0]?.product_slug ?? ""),
+              loaded: true,
+            },
+          }));
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setPapers((prev) => ({
+            ...prev,
+            [key]: {
+              options: [],
+              warning: "Household didn't answer, so the paper stock wasn't reduced.",
+              choice: "",
+              loaded: true,
+            },
+          }));
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+    // paperSpecs is rebuilt each render; paperSpecKey is its stable identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken, paperSpecKey]);
 
   const refreshCompletions = async () => {
     try {
@@ -745,15 +803,22 @@ export function TasksPanel({ accessToken }: { accessToken: string }) {
   const redemptionAction = async (
     childSubdomain: string,
     redemptionId: string,
-    action: "refund" | "claim"
+    action: "refund" | "claim",
+    productSlug?: string,
   ) => {
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       if (action === "refund") {
-        await refundRewardForChild(accessToken, childSubdomain, redemptionId);
+        const result = await refundRewardForChild(accessToken, childSubdomain, redemptionId);
+        setNotice(result.stock_warning ?? (result.stock_restored ? "Those sheets are back in Household." : null));
       } else {
-        await claimRewardForChild(accessToken, childSubdomain, redemptionId);
+        const result = await claimRewardForChild(accessToken, childSubdomain, redemptionId, productSlug);
+        setNotice(
+          result.stock_warning ??
+            (result.paper ? `Recorded ${result.paper.sheets} sheets of ${result.paper.name}.` : null),
+        );
       }
       await refreshRedemptions();
     } catch (err) {
@@ -790,7 +855,6 @@ export function TasksPanel({ accessToken }: { accessToken: string }) {
           Saved ✓
         </div>
       )}
-
       {/* New task form */}
       <section>
         <h2 className="text-lg font-extrabold mb-1">Add a task</h2>
@@ -1435,53 +1499,115 @@ export function TasksPanel({ accessToken }: { accessToken: string }) {
       {/* Redemption log */}
       <section>
         <h2 className="text-lg font-extrabold mb-1">Reward redemptions</h2>
+        {notice && (
+          <div
+            className={`mb-4 p-3 px-4 rounded-md border text-sm ${
+              notice.includes("wasn't")
+                ? "bg-amber-50 border-amber-300 text-amber-950"
+                : "bg-green-50 border-green-200 text-green-700"
+            }`}
+          >
+            {notice}
+          </div>
+        )}
         <p className="text-muted text-sm mb-4">
-          Every reward swap, newest first. Mark a reward "Claimed" once the child
-          has received it — a claimed reward can no longer be refunded.
+          Every reward swap, newest first. Mark a reward Claimed once the child
+          has received it. A paper reward asks which pack to take the sheets from.
+          Refunding that claim puts the sheets back.
         </p>
         {redemptions.length === 0 && (
           <p className="text-muted text-sm">Nothing redeemed yet.</p>
         )}
         <div className="flex flex-col gap-2">
-          {redemptions.slice(0, 50).map((r) => (
-            <div
-              key={r.redemption_id}
-              className={`flex items-center gap-3 bg-surface border rounded-lg px-4 py-2 text-sm ${
-                r.status === "pending" ? "border-amber-300" : "border-border"
-              }`}
-            >
-              <span className="font-semibold">{childName(r.child_subdomain)}</span>
-              <span className="flex-1 min-w-0 truncate">
-                {rewards?.find((w) => w.reward_id === r.reward_id)?.title ?? r.reward_id}
-              </span>
-              <span className="text-muted whitespace-nowrap">{friendlyDateTime(r.redeemed_at)}</span>
-              <span className="text-xs text-muted">
-                {r.redeemed_by === "parent" ? "by grown-up · " : ""}
-                {r.status === "pending" ? "waiting" : "claimed ✓"}
-              </span>
-              <span className="font-bold text-accent-strong whitespace-nowrap">-{r.tickets}</span>
-              {r.status === "pending" && (
-                <>
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => redemptionAction(r.child_subdomain, r.redemption_id, "claim")}
-                    className="min-h-8 px-3 rounded-md border border-green-200 bg-green-50 text-green-700 font-semibold text-xs cursor-pointer transition-colors hover:bg-green-100 disabled:opacity-50"
-                  >
-                    Claimed!
-                  </button>
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => redemptionAction(r.child_subdomain, r.redemption_id, "refund")}
-                    className="min-h-8 px-3 rounded-md border border-border bg-surface-solid font-semibold text-xs cursor-pointer transition-colors hover:bg-surface-hover disabled:opacity-50"
-                  >
-                    Refund
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
+          {redemptions.slice(0, 50).map((r) => {
+            const reward = rewards?.find((w) => w.reward_id === r.reward_id);
+            const spec = consumableOf(reward);
+            const paperKey = spec ? `${spec.category}:${spec.sheets}` : "";
+            const paper = paperKey ? papers[paperKey] : undefined;
+            const needsChoice = r.status === "pending" && !!paper && paper.options.length > 0;
+            const paperLabel = spec?.category === "printer-paper" ? "paper" : (spec?.category ?? "stock");
+            return (
+              <div
+                key={r.redemption_id}
+                className={`flex flex-col gap-2 bg-surface border rounded-lg px-4 py-2 text-sm ${
+                  r.status === "pending" ? "border-amber-300" : "border-border"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="font-semibold">{childName(r.child_subdomain)}</span>
+                  <span className="flex-1 min-w-0 truncate">{reward?.title ?? r.reward_id}</span>
+                  <span className="text-muted whitespace-nowrap">{friendlyDateTime(r.redeemed_at)}</span>
+                  <span className="text-xs text-muted">
+                    {r.redeemed_by === "parent" ? "by grown-up · " : ""}
+                    {r.status === "pending" ? "waiting" : "claimed ✓"}
+                  </span>
+                  <span className="font-bold text-accent-strong whitespace-nowrap">-{r.tickets}</span>
+                  {r.status === "pending" && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={saving || (!!spec && !paper?.loaded) || (needsChoice && !paper?.choice)}
+                        onClick={() => redemptionAction(r.child_subdomain, r.redemption_id, "claim", needsChoice ? paper?.choice : undefined)}
+                        className="min-h-8 px-3 rounded-md border border-green-200 bg-green-50 text-green-700 font-semibold text-xs cursor-pointer transition-colors hover:bg-green-100 disabled:opacity-50"
+                      >
+                        Claimed!
+                      </button>
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => redemptionAction(r.child_subdomain, r.redemption_id, "refund")}
+                        className="min-h-8 px-3 rounded-md border border-border bg-surface-solid font-semibold text-xs cursor-pointer transition-colors hover:bg-surface-hover disabled:opacity-50"
+                      >
+                        Refund
+                      </button>
+                    </>
+                  )}
+                  {r.status === "claimed" && (!!r.household_use?.recorded || !!spec) && (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => redemptionAction(r.child_subdomain, r.redemption_id, "refund")}
+                      className="min-h-8 px-3 rounded-md border border-border bg-surface-solid font-semibold text-xs cursor-pointer transition-colors hover:bg-surface-hover disabled:opacity-50"
+                    >
+                      Refund
+                    </button>
+                  )}
+                </div>
+                {r.status === "pending" && spec && (
+                  paper?.options.length ? (
+                    <label className="block text-xs font-semibold text-muted">
+                      Which {paperLabel} — {spec.sheets} sheets
+                      <select
+                        className="mt-1 block min-h-10 w-full max-w-xl rounded-md border border-border bg-surface-solid px-2 text-sm font-semibold text-text"
+                        value={paper.choice}
+                        onChange={(event) =>
+                          setPapers((prev) => ({
+                            ...prev,
+                            [paperKey]: { ...paper, choice: event.target.value },
+                          }))
+                        }
+                      >
+                        {paper.options.map((option) => (
+                          <option key={option.product_slug} value={option.product_slug}>
+                            {option.name} ({option.sheets_remaining} sheets left)
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <p className={`text-sm ${paper?.loaded ? "font-semibold text-amber-950" : "text-muted"}`}>
+                      {paper?.loaded ? paper.warning : "Checking Household paper…"}
+                    </p>
+                  )
+                )}
+                {r.status === "claimed" && r.household_use?.recorded && (
+                  <p className="text-xs text-muted">
+                    Used {r.household_use.sheets} sheets of {r.household_use.name || r.household_use.product_slug}.
+                  </p>
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
 

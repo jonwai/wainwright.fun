@@ -35,6 +35,19 @@ import {
 } from "./identity.js";
 import { PgDocumentClient, RefusedWrite, type PgDocumentClientOptions } from "./pg-ddb.js";
 import { handleHouseholdChores, householdLinkFromEnv, type HouseholdLink } from "./household-chores.js";
+import {
+  consumableSpec,
+  decideConsumableClaim,
+  householdInventoryFromEnv,
+  householdUseOf,
+  listConsumableOptions,
+  recordConsumableUse,
+  reverseConsumableUse,
+  STOCK_WARNINGS,
+  type ConsumableOption,
+  type ConsumableSpec,
+  type HouseholdInventory,
+} from "./household-inventory.js";
 import { tryHandleTaskRoute } from "./routes.js";
 import { LOCAL_CHILD_HEADER } from "./shims/kid-routes.js";
 
@@ -54,6 +67,11 @@ export interface LocalTicketsOptions {
    * Off (or Household not answering) hides the section and writes nothing.
    */
   household?: HouseholdLink;
+  /**
+   * Household inventory for reward consumables (printer paper). Omit to read
+   * HOUSEHOLD_URL. Null skips the call and confirming still works, with a warning.
+   */
+  inventory?: HouseholdInventory | null;
 }
 
 type Json = Record<string, unknown> | unknown[];
@@ -62,6 +80,8 @@ export interface Result {
   body: unknown;
   headers?: Record<string, string>;
   cookies?: string[];
+  /** Runs after the tickets transaction commits. Used for Household stock calls. */
+  afterCommit?: () => Promise<Record<string, unknown>>;
 }
 
 const TICKETS_LOCK_SQL = "SELECT tickets.lock()";
@@ -82,6 +102,7 @@ export function createLocalTickets(options: LocalTicketsOptions) {
   const { pool } = options;
   const log = options.log ?? (() => {});
   const household = options.household ?? householdLinkFromEnv();
+  const inventory = options.inventory === undefined ? householdInventoryFromEnv() : options.inventory;
 
   async function viewerFor(db: pg.PoolClient | pg.Pool, headers: Record<string, string | undefined>, peer: string | null): Promise<Viewer> {
     const ip = clientIp(peer, headers["x-real-ip"]);
@@ -115,6 +136,118 @@ export function createLocalTickets(options: LocalTicketsOptions) {
     await mkdir(options.iconsDir, { recursive: true });
     await writeFile(path.join(options.iconsDir, file), bytes, { flag: "wx" });
     return { icon: file, icon_url: `/ticket-icons/${file}` };
+  }
+
+  async function rewardExtra(db: pg.PoolClient, rewardId: string): Promise<unknown> {
+    const { rows } = await db.query("SELECT extra FROM tickets.rewards WHERE reward_id = $1", [rewardId]);
+    return rows[0]?.extra ?? null;
+  }
+
+  async function redemptionExtra(db: pg.PoolClient, childId: string, redemptionId: string): Promise<{ reward_id: string; status: string; extra: unknown } | null> {
+    const { rows } = await db.query(
+      "SELECT reward_id, status, extra FROM tickets.redemptions WHERE child_id = $1 AND redemption_id = $2",
+      [childId, redemptionId],
+    );
+    return rows[0] ?? null;
+  }
+
+  async function rememberConsumable(db: pg.PoolClient, rewardId: string, spec: ConsumableSpec): Promise<void> {
+    await db.query(
+      "UPDATE tickets.rewards SET extra = coalesce(extra, '{}'::jsonb) || $2::jsonb WHERE reward_id = $1",
+      [rewardId, JSON.stringify({ household_consumable: spec })],
+    );
+  }
+
+  function stampUse(childId: string, redemptionId: string, use: Record<string, unknown>): () => Promise<Record<string, unknown>> {
+    return async () => {
+      const recorded = await recordConsumableUse(inventory, {
+        product_slug: String(use.product_slug),
+        sheets: Number(use.sheets),
+        ref: redemptionId,
+      });
+      if (!recorded.ok) return { stock_warning: recorded.warning };
+      const db = await pool.connect();
+      try {
+        await db.query("BEGIN");
+        await db.query(
+          "UPDATE tickets.redemptions SET extra = coalesce(extra, '{}'::jsonb) || $3::jsonb WHERE child_id = $1 AND redemption_id = $2",
+          [childId, redemptionId, JSON.stringify({ household_use: { ...use, ref: redemptionId, recorded: true } })],
+        );
+        await db.query("COMMIT");
+      } catch (error) {
+        await db.query("ROLLBACK").catch(() => undefined);
+        log(`paper use recorded at Household but not on the redemption: ${(error as Error).message}`);
+      } finally {
+        db.release();
+      }
+      return {
+        paper: { product_slug: use.product_slug, name: use.name, sheets: use.sheets },
+      };
+    };
+  }
+
+  function undoUse(ref: string): () => Promise<Record<string, unknown>> {
+    return async () => {
+      const reversed = await reverseConsumableUse(inventory, ref);
+      return reversed.ok ? { stock_restored: true } : { stock_warning: reversed.warning };
+    };
+  }
+
+  /**
+   * Paper stock for a reward whose extra.household_consumable is set.
+   * Confirming still succeeds when Household is quiet; a real list requires a choice.
+   */
+  async function planPaper(
+    db: pg.PoolClient,
+    method: string,
+    resource: string,
+    resourceId: string,
+    rawBody: string,
+    childId: string | null,
+  ): Promise<{ reject?: { error: string; options: ConsumableOption[] }; warning?: string; restore?: ConsumableSpec; afterCommit?: () => Promise<Record<string, unknown>> } | null> {
+    if (resource === "rewards" && method === "PUT" && resourceId && !resourceId.includes("/")) {
+      const spec = consumableSpec({ extra: await rewardExtra(db, resourceId) });
+      const body = parse(rawBody);
+      if (!spec || body.household_consumable !== undefined) return null;
+      return { restore: spec };
+    }
+
+    const admin = /^redemptions\/([^/]+)\/([^/]+)\/(claim|refund)$/.exec(resource === "rewards" ? resourceId : "");
+    if (method === "POST" && admin) {
+      const childId = decodeURIComponent(admin[1]);
+      const redemptionId = decodeURIComponent(admin[2]);
+      const row = await redemptionExtra(db, childId, redemptionId);
+      if (!row) return null;
+      if (admin[3] === "refund") {
+        const use = householdUseOf({ extra: row.extra });
+        return use ? { afterCommit: undoUse(use.ref) } : null;
+      }
+      if (row.status !== "pending") return null;
+      const spec = consumableSpec({ extra: await rewardExtra(db, row.reward_id) });
+      if (!spec) return null;
+      const listed = await listConsumableOptions(inventory, spec);
+      const decision = decideConsumableClaim(listed, parse(rawBody).product_slug, spec);
+      if (decision.kind === "reject") return { reject: { error: decision.error, options: decision.options } };
+      if (decision.kind === "warn") return { warning: decision.warning };
+      return {
+        afterCommit: stampUse(childId, redemptionId, {
+          product_slug: decision.option.product_slug,
+          name: decision.option.name,
+          sheets: decision.sheets,
+          source: "tickets-reward",
+        }),
+      };
+    }
+
+    if (method === "POST" && resource === "kid" && resourceId === "rewards/refund" && childId) {
+      const { rows } = await db.query(
+        "SELECT redemption_id, extra FROM tickets.redemptions WHERE child_id = $1 AND status = 'pending' ORDER BY redemption_id DESC LIMIT 1",
+        [childId],
+      );
+      const use = householdUseOf({ extra: rows[0]?.extra });
+      return use ? { afterCommit: undoUse(use.ref) } : null;
+    }
+    return null;
   }
 
   /** Kid history shows a household chore's name (hosted only labels bonus awards). */
@@ -168,7 +301,7 @@ export function createLocalTickets(options: LocalTicketsOptions) {
     const resource = slash === -1 ? rest : rest.slice(0, slash);
     const resourceId = slash === -1 ? "" : rest.slice(slash + 1);
     const kid = resource === "kid";
-    if (!kid && !["tasks", "rewards", "board", "children"].includes(resource)) throw new HttpError(404, "Not found");
+    if (!kid && !["tasks", "rewards", "board", "children", "household"].includes(resource)) throw new HttpError(404, "Not found");
 
     // Admin: a parent's device only. A child's device never, whatever it sends.
     if (!kid) {
@@ -183,6 +316,23 @@ export function createLocalTickets(options: LocalTicketsOptions) {
     if (kid && (resourceId === "household-chores" || resourceId.startsWith("household-chores/"))) {
       return handleHouseholdChores(method, resourceId, viewer.child!.id, household, log);
     }
+
+    if (!kid && method === "GET" && resource === "household" && resourceId === "consumables") {
+      const spec = consumableSpec({ household_consumable: { category: query.category, sheets: Number(query.min_sheets) } });
+      if (!spec) throw new HttpError(400, "category and a whole number of min_sheets are required");
+      const listed = await listConsumableOptions(inventory, spec);
+      if (!listed.ok) return { status: 200, body: { options: [], warning: listed.warning } };
+      return {
+        status: 200,
+        body: {
+          options: listed.options,
+          warning: listed.options.length === 0 ? STOCK_WARNINGS.none(spec.sheets) : null,
+        },
+      };
+    }
+
+    const paper = method === "GET" ? null : await planPaper(db, method, resource, resourceId, rawBody, viewer.child?.id ?? null);
+    if (paper?.reject) return { status: 400, body: { error: paper.reject.error, options: paper.reject.options } };
 
     if (method !== "GET") await db.query(TICKETS_LOCK_SQL);
     if (resource === "children") {
@@ -208,7 +358,15 @@ export function createLocalTickets(options: LocalTicketsOptions) {
     if (!response) throw new HttpError(404, "Not found");
     let body: unknown = response.body ? JSON.parse(response.body) : null;
     if (kid && method === "GET" && resourceId === "tasks/history" && response.statusCode === 200) body = await labelHistory(db, viewer.child!.id, body);
-    return { status: response.statusCode, body };
+    if (response.statusCode === 200 && paper?.restore) await rememberConsumable(db, resourceId, paper.restore);
+    if (response.statusCode === 200 && paper?.warning && body && typeof body === "object" && !Array.isArray(body)) {
+      (body as Record<string, unknown>).stock_warning = paper.warning;
+    }
+    return {
+      status: response.statusCode,
+      body,
+      ...(response.statusCode === 200 && paper?.afterCommit ? { afterCommit: paper.afterCommit } : {}),
+    };
   }
 
   async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL, headers: Record<string, string>, secure: boolean) {
@@ -218,6 +376,19 @@ export function createLocalTickets(options: LocalTicketsOptions) {
     url.searchParams.forEach((value, key) => (query[key] = value));
     const pathname = url.pathname.length > 5 && url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
     const result = await inTransaction(pool, log, method, pathname, (db) => api(db, method, pathname, query, headers, rawBody, req.socket.remoteAddress ?? null, secure));
+    if (result.afterCommit && result.status < 400) {
+      try {
+        const extra = await result.afterCommit();
+        if (extra && result.body && typeof result.body === "object" && !Array.isArray(result.body)) {
+          Object.assign(result.body, extra);
+        }
+      } catch (error) {
+        log(`household stock follow-up failed: ${(error as Error).message}`);
+        if (result.body && typeof result.body === "object" && !Array.isArray(result.body)) {
+          (result.body as Record<string, unknown>).stock_warning ??= STOCK_WARNINGS.silent;
+        }
+      }
+    }
     sendResult(res, result);
   }
 
