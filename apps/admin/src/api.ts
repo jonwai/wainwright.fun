@@ -606,7 +606,7 @@ export async function refundRewardForChild(
   accessToken: string,
   childSubdomain: string,
   redemptionId: string
-): Promise<{ refunded: boolean; stock_warning?: string | null; stock_restored?: boolean }> {
+): Promise<{ refunded: boolean; stock_warning?: string | null; stock_error?: string | null; stock_restored?: boolean }> {
   const res = await fetchWithAuth(
     accessToken,
     `rewards/redemptions/${encodeURIComponent(childSubdomain)}/${encodeURIComponent(redemptionId)}/refund`,
@@ -622,7 +622,7 @@ export async function claimRewardForChild(
   childSubdomain: string,
   redemptionId: string,
   productSlug?: string
-): Promise<{ claimed: boolean; stock_warning?: string | null; paper?: { product_slug: string; name: string; sheets: number } | null }> {
+): Promise<{ claimed: boolean; stock_warning?: string | null; stock_error?: string | null; paper?: { product_slug: string; name: string; sheets: number } | null }> {
   const res = await fetchWithAuth(
     accessToken,
     `rewards/redemptions/${encodeURIComponent(childSubdomain)}/${encodeURIComponent(redemptionId)}/claim`,

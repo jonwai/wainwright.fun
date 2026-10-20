@@ -33,6 +33,18 @@ import {
   type TaskCompletion,
 } from "./api";
 
+function stockNotice(
+  result: { stock_error?: string | null; stock_warning?: string | null },
+  ok: string | null,
+): { text: string; tone: "ok" | "warn" | "error" } | null {
+  if (result.stock_error) {
+    const warning = result.stock_warning && !result.stock_error.includes(result.stock_warning) ? ` ${result.stock_warning}` : "";
+    return { text: `${result.stock_error}${warning}`, tone: "error" };
+  }
+  if (result.stock_warning) return { text: result.stock_warning, tone: "warn" };
+  return ok ? { text: ok, tone: "ok" } : null;
+}
+
 function consumableOf(reward: Reward | undefined): { category: string; sheets: number } | null {
   const spec = reward?.household_consumable;
   const category = spec?.category?.trim() ?? "";
@@ -348,7 +360,7 @@ export function TasksPanel({ accessToken }: { accessToken: string }) {
   const [boardDraft, setBoardDraft] = useState<BoardDraft>(EMPTY_BOARD_DRAFT);
   const [bonusDraft, setBonusDraft] = useState<BonusDraft>(EMPTY_BONUS_DRAFT);
   const [papers, setPapers] = useState<Record<string, { options: HouseholdConsumableOption[]; warning: string | null; choice: string; loaded: boolean }>>({});
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; tone: "ok" | "warn" | "error" } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -812,13 +824,10 @@ export function TasksPanel({ accessToken }: { accessToken: string }) {
     try {
       if (action === "refund") {
         const result = await refundRewardForChild(accessToken, childSubdomain, redemptionId);
-        setNotice(result.stock_warning ?? (result.stock_restored ? "Those sheets are back in Household." : null));
+        setNotice(stockNotice(result, result.stock_restored ? "Those sheets are back in Household." : null));
       } else {
         const result = await claimRewardForChild(accessToken, childSubdomain, redemptionId, productSlug);
-        setNotice(
-          result.stock_warning ??
-            (result.paper ? `Recorded ${result.paper.sheets} sheets of ${result.paper.name}.` : null),
-        );
+        setNotice(stockNotice(result, result.paper ? `Recorded ${result.paper.sheets} sheets of ${result.paper.name}.` : null));
       }
       await refreshRedemptions();
     } catch (err) {
@@ -1502,12 +1511,14 @@ export function TasksPanel({ accessToken }: { accessToken: string }) {
         {notice && (
           <div
             className={`mb-4 p-3 px-4 rounded-md border text-sm ${
-              notice.includes("wasn't")
-                ? "bg-amber-50 border-amber-300 text-amber-950"
-                : "bg-green-50 border-green-200 text-green-700"
+              notice.tone === "error"
+                ? "bg-red-50 border-red-200 text-danger"
+                : notice.tone === "warn"
+                  ? "bg-amber-50 border-amber-300 text-amber-950"
+                  : "bg-green-50 border-green-200 text-green-700"
             }`}
           >
-            {notice}
+            {notice.text}
           </div>
         )}
         <p className="text-muted text-sm mb-4">

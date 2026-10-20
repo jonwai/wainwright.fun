@@ -161,11 +161,14 @@ export function createLocalTickets(options: LocalTicketsOptions) {
   function stampUse(childId: string, redemptionId: string, use: Record<string, unknown>): () => Promise<Record<string, unknown>> {
     return async () => {
       const recorded = await recordConsumableUse(inventory, {
+        category: String(use.category),
         product_slug: String(use.product_slug),
         sheets: Number(use.sheets),
         ref: redemptionId,
       });
-      if (!recorded.ok) return { stock_warning: recorded.warning };
+      if (!recorded.ok) {
+        return recorded.rejected ? { stock_warning: recorded.warning, stock_error: recorded.error } : { stock_warning: recorded.warning };
+      }
       const db = await pool.connect();
       try {
         await db.query("BEGIN");
@@ -186,10 +189,11 @@ export function createLocalTickets(options: LocalTicketsOptions) {
     };
   }
 
-  function undoUse(ref: string): () => Promise<Record<string, unknown>> {
+  function undoUse(use: { category: string; ref: string }): () => Promise<Record<string, unknown>> {
     return async () => {
-      const reversed = await reverseConsumableUse(inventory, ref);
-      return reversed.ok ? { stock_restored: true } : { stock_warning: reversed.warning };
+      const reversed = await reverseConsumableUse(inventory, use);
+      if (reversed.ok) return { stock_restored: true };
+      return reversed.rejected ? { stock_warning: reversed.warning, stock_error: reversed.error } : { stock_warning: reversed.warning };
     };
   }
 
@@ -220,7 +224,7 @@ export function createLocalTickets(options: LocalTicketsOptions) {
       if (!row) return null;
       if (admin[3] === "refund") {
         const use = householdUseOf({ extra: row.extra });
-        return use ? { afterCommit: undoUse(use.ref) } : null;
+        return use ? { afterCommit: undoUse(use) } : null;
       }
       if (row.status !== "pending") return null;
       const spec = consumableSpec({ extra: await rewardExtra(db, row.reward_id) });
@@ -231,6 +235,7 @@ export function createLocalTickets(options: LocalTicketsOptions) {
       if (decision.kind === "warn") return { warning: decision.warning };
       return {
         afterCommit: stampUse(childId, redemptionId, {
+          category: spec.category,
           product_slug: decision.option.product_slug,
           name: decision.option.name,
           sheets: decision.sheets,
@@ -245,7 +250,7 @@ export function createLocalTickets(options: LocalTicketsOptions) {
         [childId],
       );
       const use = householdUseOf({ extra: rows[0]?.extra });
-      return use ? { afterCommit: undoUse(use.ref) } : null;
+      return use ? { afterCommit: undoUse(use) } : null;
     }
     return null;
   }
