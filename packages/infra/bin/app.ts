@@ -49,6 +49,8 @@ new LocalAcmeDnsStack(app, "LocalAcmeDnsStack", {
     "admin.snacks.wainwright.fun",
     "kitchen.wainwright.fun",
     "admin.kitchen.wainwright.fun",
+    // Kitchen wall tablet (jonwai/kitchen apps/fire), 20 Oct 2026.
+    "fire.kitchen.wainwright.fun",
     "household.wainwright.fun",
     "admin.household.wainwright.fun",
     // wainwright.fun apps moved to the Mac (8 Oct 2026); hosted api/auth/chores/twin retired 11 Oct 2026.
@@ -63,6 +65,8 @@ new LocalAcmeDnsStack(app, "LocalAcmeDnsStack", {
     "joanna.wainwright.fun",
     // Bible Journey (jonwai/bible-journey) moving to the Mac (8 Oct 2026).
     "bible.wainwright.fun",
+    // Finance (jonwai/finance) on the Mac (17 Oct 2026).
+    "finance.wainwright.fun",
   ],
   userName: "wainwright-fun-local-acme",
 });
