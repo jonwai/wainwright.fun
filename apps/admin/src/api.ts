@@ -379,6 +379,11 @@ export interface Reward {
   period: RewardPeriod | null;
   /** snack-stock rewards: the Wainsbury's product slug to track. */
   snack_product_slug: string | null;
+  /**
+   * Household stock taken when a parent claims a redemption.
+   * `{ category: "printer-paper", sheets: 10 }` on tickets.rewards.extra.
+   */
+  household_consumable?: { category: string; sheets: number } | null;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -393,6 +398,8 @@ export interface RewardRedemption {
   tickets: number;
   status: "pending" | "claimed";
   claimed_at?: string;
+  /** Set once a claim recorded Household stock against this redemption. */
+  household_use?: { product_slug: string; name?: string; sheets: number; recorded?: boolean } | null;
 }
 
 export const getTasks = (t: string) => apiGet<Task[]>(t, "tasks");
@@ -573,32 +580,61 @@ export async function redeemRewardForChild(
   return res.json();
 }
 
+export interface HouseholdConsumableOption {
+  product_slug: string;
+  name: string;
+  sheets_remaining: number;
+}
+
+/** Printer paper (or another Household consumable) with at least `minSheets` left. */
+export async function getHouseholdConsumables(
+  accessToken: string,
+  category: string,
+  minSheets: number,
+): Promise<{ options: HouseholdConsumableOption[]; warning: string | null }> {
+  const params = new URLSearchParams({ category, min_sheets: String(minSheets) });
+  const res = await fetchWithAuth(accessToken, `household/consumables?${params}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : `API returned ${res.status}`);
+  return {
+    options: Array.isArray(data.options) ? data.options : [],
+    warning: typeof data.warning === "string" ? data.warning : null,
+  };
+}
+
 export async function refundRewardForChild(
   accessToken: string,
   childSubdomain: string,
   redemptionId: string
-): Promise<{ refunded: boolean }> {
+): Promise<{ refunded: boolean; stock_warning?: string | null; stock_error?: string | null; stock_restored?: boolean }> {
   const res = await fetchWithAuth(
     accessToken,
     `rewards/redemptions/${encodeURIComponent(childSubdomain)}/${encodeURIComponent(redemptionId)}/refund`,
     { method: "POST" }
   );
-  if (!res.ok) throw new Error(`API returned ${res.status}`);
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : `API returned ${res.status}`);
+  return data;
 }
 
 export async function claimRewardForChild(
   accessToken: string,
   childSubdomain: string,
-  redemptionId: string
-): Promise<{ claimed: boolean }> {
+  redemptionId: string,
+  productSlug?: string
+): Promise<{ claimed: boolean; stock_warning?: string | null; stock_error?: string | null; paper?: { product_slug: string; name: string; sheets: number } | null }> {
   const res = await fetchWithAuth(
     accessToken,
     `rewards/redemptions/${encodeURIComponent(childSubdomain)}/${encodeURIComponent(redemptionId)}/claim`,
-    { method: "POST" }
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(productSlug ? { product_slug: productSlug } : {}),
+    }
   );
-  if (!res.ok) throw new Error(`API returned ${res.status}`);
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : `API returned ${res.status}`);
+  return data;
 }
 
 // ── Term dates ─────────────────────────────────────────────────────

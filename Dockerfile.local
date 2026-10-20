@@ -37,6 +37,10 @@ ENV NODE_ENV=production \
 # House chores stay hidden unless the compose service sets both at runtime:
 #   HOUSEHOLD_CHORES=1
 #   HOUSEHOLD_URL=http://household:43126
+# Paper rewards use HOUSEHOLD_URL too. Every call sends Authorization: Bearer.
+# Set one of these at runtime (the token stays on the Mac, not in this image):
+#   HOUSEHOLD_SERVICE_TOKEN
+#   HOUSEHOLD_SERVICE_TOKEN_FILE   (file is read and trimmed; mount it read-only)
 COPY --from=build /app/packages/local/dist ./dist
 COPY --from=build /app/packages/local/migrations ./migrations
 COPY --from=build /app/apps/tickets/dist-local ./tickets
