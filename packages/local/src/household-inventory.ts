@@ -1,29 +1,38 @@
 /**
  * Printer paper used when a parent confirms a Tickets reward.
  *
- * Household's provisional tickets integration. Paths for a category live here
- * so a later category can be added without touching the admin UI.
- * Base URL is HOUSEHOLD_URL, usually http://household:43126.
+ * Household PR #26. Paths for a category live here so a later category can be
+ * added without touching the admin UI. Base URL is HOUSEHOLD_URL, usually
+ * http://household:43126.
  *
  *   printer-paper
  *   GET  {HOUSEHOLD_URL}/api/integrations/tickets/printer-paper?min_sheets={sheets}
- *        200 [{ product_slug, name, sheets_remaining }], fullest pack first.
- *        Tickets also accepts { options: [...] }, drops rows below min_sheets,
- *        and sorts again so the default is the fullest pack.
+ *        200 { papers: [{ product_slug, name, sheets_remaining }] }, fullest first.
+ *        A bare array is accepted too. 400 means min_sheets was not a whole number.
  *   POST {HOUSEHOLD_URL}/api/integrations/tickets/printer-paper/use
- *        { product_slug, sheets, ref: redemption_id, source: "tickets-reward" }
- *        Idempotent on ref. 2xx is recorded. A 4xx (not paper, or more sheets
- *        than are left) is shown to the admin. The reward is still claimed.
- *   Reverse restores that ref once. HOUSEHOLD_PAPER_REVERSE picks how:
- *        post (default)  POST .../printer-paper/reverse  { ref }
- *        delete          DELETE .../printer-paper/use/{ref}
+ *        { product_slug, sheets, ref, source: "tickets-reward" }
+ *        sheets is a whole number above 0. ref must not contain "#".
+ *        200 { ok, already, ref, ... } records the use. The same ref with the
+ *        same product and sheets returns already:true. A different product or
+ *        sheet count, or a ref that was already reversed, is 409.
+ *        400 is not paper or no pack size. 404 is an unknown product.
+ *        409 is not enough sheets, or that ref clash.
+ *   POST {HOUSEHOLD_URL}/api/integrations/tickets/printer-paper/reverse
+ *        { ref }
+ *        200 { ok, ref, restored:true, already:false } the first time, then
+ *        { restored:false, already:true }. Both are success.
  *
- * HOUSEHOLD_SERVICE_TOKEN, when set, is sent on these calls. The header name
- * is HOUSEHOLD_SERVICE_HEADER, defaulting to Authorization: Bearer <token>.
+ * Every call sends Authorization: Bearer <token>. 401 means the token was refused.
+ * The token is HOUSEHOLD_SERVICE_TOKEN, or the trimmed contents of
+ * HOUSEHOLD_SERVICE_TOKEN_FILE. A Tickets redemption id is a fresh
+ * `${epoch36}-${rand}` with no "#", and a refund deletes that row, so the ref
+ * is the redemption id. A later redeem is a new id.
  *
  * Which reward uses this is tickets.rewards.extra.household_consumable:
  * { category: "printer-paper", sheets: 10 }. The reward id is not special.
  */
+import { readFileSync } from "node:fs";
+
 export const TICKETS_REWARD_SOURCE = "tickets-reward";
 
 /** Category on a reward → Household path, with no trailing slash. */
@@ -31,34 +40,28 @@ export const HOUSEHOLD_CONSUMABLE_PATHS = {
   "printer-paper": "/api/integrations/tickets/printer-paper",
 } as const;
 
-/**
- * How a recorded paper use is undone.
- * "post" → POST {path}/reverse { ref }
- * "delete" → DELETE {path}/use/{ref}
- * HOUSEHOLD_PAPER_REVERSE=delete overrides this.
- */
-export const HOUSEHOLD_PAPER_REVERSE: "post" | "delete" = "post";
-
 export const STOCK_WARNINGS = {
   unlinked: "Household isn't linked, so the paper stock wasn't reduced.",
   silent: "Household didn't answer, so the paper stock wasn't reduced.",
+  unauthorised: "Household refused the service token, so the paper stock wasn't reduced.",
+  badSheets: "Household rejected the sheet count, so the stock wasn't reduced.",
   unrecognised: "Household's paper list wasn't recognised, so the stock wasn't reduced.",
   unmapped: (category: string) => `Household has no paper list for ${category}, so the stock wasn't reduced.`,
   none: (sheets: number) => `No paper has at least ${sheets} sheets left, so the stock wasn't reduced.`,
   notRecorded: "Claimed, but Household didn't record the sheets used, so the stock wasn't reduced.",
+  notPaper: "That product is not printer paper, or it has no pack size.",
+  unknownProduct: "Household doesn't know that paper.",
+  conflict: "Not enough sheets left, or that paper was already used under another choice.",
   refused: "Household refused that paper.",
   notRestored: "Refunded, but Household didn't put the sheets back.",
+  unauthorisedRestore: "Household refused the service token, so the sheets weren't put back.",
 } as const;
 
 export interface HouseholdInventory {
   /** Household base URL, no trailing slash. */
   url: string;
-  /** Service token. Omitted when HOUSEHOLD_SERVICE_TOKEN is empty. */
+  /** Service token. Omitted when neither the env value nor the token file is set. */
   token?: string;
-  /** Header that carries the token. Default Authorization. */
-  authHeader?: string;
-  /** Defaults to HOUSEHOLD_PAPER_REVERSE. */
-  reverse?: "post" | "delete";
 }
 
 export interface ConsumableSpec {
@@ -82,26 +85,46 @@ export interface RecordedConsumableUse {
   recorded: boolean;
 }
 
+export function householdServiceToken(env: NodeJS.ProcessEnv = process.env): string {
+  const inline = (env.HOUSEHOLD_SERVICE_TOKEN ?? "").trim();
+  if (inline) return inline;
+  const file = (env.HOUSEHOLD_SERVICE_TOKEN_FILE ?? "").trim();
+  if (!file) return "";
+  try {
+    return readFileSync(file, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
 export function householdInventoryFromEnv(env: NodeJS.ProcessEnv = process.env): HouseholdInventory | null {
   const url = (env.HOUSEHOLD_URL ?? "").trim().replace(/\/$/, "");
   if (!url) return null;
-  const token = (env.HOUSEHOLD_SERVICE_TOKEN ?? "").trim();
-  const authHeader = (env.HOUSEHOLD_SERVICE_HEADER ?? "").trim() || "Authorization";
-  const reverse = (env.HOUSEHOLD_PAPER_REVERSE ?? "").trim().toLowerCase() === "delete" ? "delete" : HOUSEHOLD_PAPER_REVERSE;
-  return { url, ...(token ? { token } : {}), authHeader, reverse };
+  const token = householdServiceToken(env);
+  return { url, ...(token ? { token } : {}) };
+}
+
+/**
+ * Household's paper ref. A Tickets redemption id is safe to use as-is:
+ * recordRedemption builds `${Date.now().toString(36)}-${random}`, which has
+ * no "#", and a refund deletes that row, so the next redeem is a new id.
+ */
+export function paperUseRef(redemptionId: string): string {
+  const ref = redemptionId.trim();
+  if (!ref || ref.includes("#")) throw new Error("A paper ref cannot contain '#'");
+  return ref;
 }
 
 export function consumablePath(category: string): string | null {
   return HOUSEHOLD_CONSUMABLE_PATHS[category as keyof typeof HOUSEHOLD_CONSUMABLE_PATHS] ?? null;
 }
 
-/** Authorization gets `Bearer <token>` unless the token already has a scheme. Other header names get the token as-is. */
+/** Every Household integration call uses this. A missing token is sent as no Authorization header. */
 export function householdAuthHeaders(inventory: HouseholdInventory): Record<string, string> {
   const headers: Record<string, string> = { accept: "application/json" };
   const token = inventory.token?.trim();
   if (!token) return headers;
-  const name = inventory.authHeader?.trim() || "Authorization";
-  headers[name] = name.toLowerCase() === "authorization" && !/^bearer\s+/i.test(token) ? `Bearer ${token}` : token;
+  headers.Authorization = /^bearer\s+/i.test(token) ? token : `Bearer ${token}`;
   return headers;
 }
 
@@ -151,10 +174,10 @@ function optionOf(value: unknown): ConsumableOption | null {
   return { product_slug, name, sheets_remaining: sheets };
 }
 
-/** Accept a bare array or `{ options: [...] }`. Anything else is unrecognised. */
+/** Household returns `{ papers: [...] }`. A bare array is accepted too. */
 export function parseConsumableOptions(payload: unknown, minSheets: number): ConsumableOption[] | null {
   const body = asRecord(payload);
-  const list = Array.isArray(payload) ? payload : Array.isArray(body?.options) ? body.options : null;
+  const list = Array.isArray(body?.papers) ? body.papers : Array.isArray(payload) ? payload : null;
   if (!list) return null;
   const bySlug = new Map<string, ConsumableOption>();
   for (const entry of list) {
@@ -183,6 +206,8 @@ export async function listConsumableOptions(
     const url = new URL(path, inventory.url);
     url.searchParams.set("min_sheets", String(spec.sheets));
     const response = await fetch(url, { headers: householdAuthHeaders(inventory), signal: AbortSignal.timeout(4000) });
+    if (response.status === 401) return { ok: false, warning: STOCK_WARNINGS.unauthorised };
+    if (response.status === 400) return { ok: false, warning: STOCK_WARNINGS.badSheets };
     if (!response.ok) return { ok: false, warning: STOCK_WARNINGS.silent };
     const options = parseConsumableOptions(await readBody(response), spec.sheets);
     if (!options) return { ok: false, warning: STOCK_WARNINGS.unrecognised };
@@ -216,9 +241,17 @@ export type ConsumableWriteResult =
   | { ok: false; rejected: false; warning: string }
   | { ok: false; rejected: true; warning: string; error: string };
 
-function refused(payload: unknown): string {
+function refused(payload: unknown, fallback: string): string {
   const body = asRecord(payload);
-  return asString(body?.error) ?? asString(body?.message) ?? STOCK_WARNINGS.refused;
+  return asString(body?.error) ?? asString(body?.message) ?? fallback;
+}
+
+function useFailure(status: number, payload: unknown, whenDown: string, whenUnauthorised: string): ConsumableWriteResult {
+  if (status === 401) return { ok: false, rejected: false, warning: whenUnauthorised };
+  if (status === 400) return { ok: false, rejected: true, warning: whenDown, error: refused(payload, STOCK_WARNINGS.notPaper) };
+  if (status === 404) return { ok: false, rejected: true, warning: whenDown, error: refused(payload, STOCK_WARNINGS.unknownProduct) };
+  if (status === 409) return { ok: false, rejected: true, warning: whenDown, error: refused(payload, STOCK_WARNINGS.conflict) };
+  return { ok: false, rejected: false, warning: whenDown };
 }
 
 export async function recordConsumableUse(
@@ -241,11 +274,7 @@ export async function recordConsumableUse(
       signal: AbortSignal.timeout(4000),
     });
     if (response.ok) return { ok: true };
-    const payload = await readBody(response);
-    if (response.status >= 400 && response.status < 500) {
-      return { ok: false, rejected: true, warning: STOCK_WARNINGS.notRecorded, error: refused(payload) };
-    }
-    return { ok: false, rejected: false, warning: STOCK_WARNINGS.notRecorded };
+    return useFailure(response.status, await readBody(response), STOCK_WARNINGS.notRecorded, STOCK_WARNINGS.unauthorised);
   } catch {
     return { ok: false, rejected: false, warning: STOCK_WARNINGS.notRecorded };
   }
@@ -258,25 +287,15 @@ export async function reverseConsumableUse(
   if (!inventory?.url) return { ok: false, rejected: false, warning: STOCK_WARNINGS.notRestored };
   const path = consumablePath(use.category);
   if (!path) return { ok: false, rejected: false, warning: STOCK_WARNINGS.notRestored };
-  const mode = inventory.reverse ?? HOUSEHOLD_PAPER_REVERSE;
   try {
-    const response = await fetch(
-      mode === "delete"
-        ? new URL(`${path}/use/${encodeURIComponent(use.ref)}`, inventory.url)
-        : new URL(`${path}/reverse`, inventory.url),
-      {
-        method: mode === "delete" ? "DELETE" : "POST",
-        headers: { ...householdAuthHeaders(inventory), ...(mode === "post" ? { "content-type": "application/json" } : {}) },
-        ...(mode === "post" ? { body: JSON.stringify({ ref: use.ref }) } : {}),
-        signal: AbortSignal.timeout(4000),
-      },
-    );
+    const response = await fetch(new URL(`${path}/reverse`, inventory.url), {
+      method: "POST",
+      headers: { ...householdAuthHeaders(inventory), "content-type": "application/json" },
+      body: JSON.stringify({ ref: use.ref }),
+      signal: AbortSignal.timeout(4000),
+    });
     if (response.ok) return { ok: true };
-    const payload = await readBody(response);
-    if (response.status >= 400 && response.status < 500) {
-      return { ok: false, rejected: true, warning: STOCK_WARNINGS.notRestored, error: refused(payload) };
-    }
-    return { ok: false, rejected: false, warning: STOCK_WARNINGS.notRestored };
+    return useFailure(response.status, await readBody(response), STOCK_WARNINGS.notRestored, STOCK_WARNINGS.unauthorisedRestore);
   } catch {
     return { ok: false, rejected: false, warning: STOCK_WARNINGS.notRestored };
   }

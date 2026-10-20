@@ -41,6 +41,7 @@ import {
   householdInventoryFromEnv,
   householdUseOf,
   listConsumableOptions,
+  paperUseRef,
   recordConsumableUse,
   reverseConsumableUse,
   STOCK_WARNINGS,
@@ -160,11 +161,12 @@ export function createLocalTickets(options: LocalTicketsOptions) {
 
   function stampUse(childId: string, redemptionId: string, use: Record<string, unknown>): () => Promise<Record<string, unknown>> {
     return async () => {
+      const ref = paperUseRef(redemptionId);
       const recorded = await recordConsumableUse(inventory, {
         category: String(use.category),
         product_slug: String(use.product_slug),
         sheets: Number(use.sheets),
-        ref: redemptionId,
+        ref,
       });
       if (!recorded.ok) {
         return recorded.rejected ? { stock_warning: recorded.warning, stock_error: recorded.error } : { stock_warning: recorded.warning };
@@ -174,7 +176,7 @@ export function createLocalTickets(options: LocalTicketsOptions) {
         await db.query("BEGIN");
         await db.query(
           "UPDATE tickets.redemptions SET extra = coalesce(extra, '{}'::jsonb) || $3::jsonb WHERE child_id = $1 AND redemption_id = $2",
-          [childId, redemptionId, JSON.stringify({ household_use: { ...use, ref: redemptionId, recorded: true } })],
+          [childId, redemptionId, JSON.stringify({ household_use: { ...use, ref, recorded: true } })],
         );
         await db.query("COMMIT");
       } catch (error) {
