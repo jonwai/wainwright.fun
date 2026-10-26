@@ -333,6 +333,13 @@ export function resolveChildConfig(
       hidden: true,
       web_clip: true,
     },
+    // Brush Time (two-minute tooth brushing, ../brush on the Mac), 26 Oct 2026.
+    {
+      name: "Brush Time",
+      url: `https://brush.${config.domain}`,
+      hidden: true,
+      web_clip: true,
+    },
     // Sky ID is in the profiles installed on the iPads (restored so a build from the repo matches
     // them; see packages/infra/scripts/verify-sky-id.ts). Chores was retired on 11 Oct 2026.
     {

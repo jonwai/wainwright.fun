@@ -67,6 +67,8 @@ new LocalAcmeDnsStack(app, "LocalAcmeDnsStack", {
     "bible.wainwright.fun",
     // Finance (jonwai/finance) on the Mac (17 Oct 2026).
     "finance.wainwright.fun",
+    // Brush Time (kids' tooth brushing, ../brush) on the Mac (26 Oct 2026).
+    "brush.wainwright.fun",
   ],
   userName: "wainwright-fun-local-acme",
 });
