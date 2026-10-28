@@ -340,6 +340,13 @@ export function resolveChildConfig(
       hidden: true,
       web_clip: true,
     },
+    // Kitchen (kitchen.wainwright.fun, the Mac Studio app).
+    {
+      name: "Kitchen",
+      url: `https://kitchen.${config.domain}`,
+      hidden: true,
+      web_clip: true,
+    },
     // Sky ID is in the profiles installed on the iPads (restored so a build from the repo matches
     // them; see packages/infra/scripts/verify-sky-id.ts). Chores was retired on 11 Oct 2026.
     {
