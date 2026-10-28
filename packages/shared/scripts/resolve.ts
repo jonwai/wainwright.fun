@@ -340,9 +340,9 @@ export function resolveChildConfig(
       hidden: true,
       web_clip: true,
     },
-    // Kitchen (kitchen.wainwright.fun, the Mac Studio app).
+    // Café Sixty Five (kitchen.wainwright.fun, the Mac Studio kitchen app; 65 Tweed Street).
     {
-      name: "Kitchen",
+      name: "Café Sixty Five",
       url: `https://kitchen.${config.domain}`,
       hidden: true,
       web_clip: true,
