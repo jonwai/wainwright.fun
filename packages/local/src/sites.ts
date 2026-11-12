@@ -3,7 +3,10 @@
  * in the same server. Requests are dispatched on Host:
  *
  *   wainwright.fun              the kids' launcher; the child is the device's IP (core.devices), a parent
- *                               may pick a child to look at. /kid/config, /kid/avatar, /kid/profile.
+ *                               may pick a child to look at. /kid/config, /kid/avatar, /kid/profile,
+ *                               /kid/internet, /kid/internet/mode.
+ *                               GET /api/ha/homework-domains is the only API that skips the device
+ *                               check (Home Assistant is not a device). It needs Authorization: Bearer.
  *   {child}.wainwright.fun      the same launcher, when the label is a child in core.people
  *                               (hannah.wainwright.fun and the other iPad bookmarks). The child
  *                               is still the device's IP, not the hostname. KIDS_LAUNCHER_HOSTS
@@ -25,6 +28,8 @@ import yaml from "js-yaml";
 import type pg from "pg";
 import { buildRootConfig, type DbApp, type DbChild, type DbRestriction, type DbTheme, type DbWebsite } from "../../shared/scripts/yaml-generator.js";
 import { HttpError, inTransaction, page, parse, readBody, sendResult, serveFile, type Result } from "./app.js";
+import { bearerToken, haClientFromEnv, readTokenFile, tokensMatch, type HaClient } from "./ha.js";
+import { handleKidInternet, handleKidInternetMode, loadHomeworkDomains } from "./homework.js";
 import { ACT_AS_HEADER, clientIp, loadDirectory, normaliseIp, NOT_SET_UP, NOT_SET_UP_HTML, readChoices, resolveViewer, type Viewer } from "./identity.js";
 import { ensureAppIcon, ensureWebsiteIcon, fetchMissingIcons, type IconSubject } from "./icons.js";
 import { isAvatar, loadResolved, loadRows, sha256, signProfile, SigningUnavailable, toKidPayload, unsignedProfile, type Signer } from "./kids.js";
@@ -98,8 +103,15 @@ export interface LocalSitesOptions {
   log?: (line: string) => void;
   now?: () => Date;
   ddbOptions?: PgDocumentClientOptions;
-  /** Icon downloads. Defaults to global fetch. Tests pass a stub. */
+  /** Icon downloads. Defaults to global fetch. Tests pass a stub. Not used for Home Assistant. */
   fetch?: typeof fetch;
+  /**
+   * Home Assistant client for /kid/internet. Defaults to HA_URL (https://home.wainwright.fun)
+   * and the token in HA_TOKEN_FILE. A missing token reports the controls unavailable.
+   */
+  ha?: HaClient;
+  /** Bearer token file for GET /api/ha/homework-domains. Defaults to HA_HOMEWORK_DOMAINS_TOKEN_FILE. */
+  homeworkDomainsTokenFile?: string;
   /** Notified when an icon download is scheduled, after the save has committed. Tests wait on it. */
   trackIconFetch?: (done: Promise<void>) => void;
   /**
@@ -252,6 +264,14 @@ export function createLocalSites(options: LocalSitesOptions) {
       await db.query("UPDATE core.people SET avatar = $2 WHERE id = $1 AND role = 'child'", [childId, avatar]);
       return { status: 200, body: { avatar } };
     }
+    if (pathname === "/kid/internet" && method === "GET") {
+      const ha = options.ha ?? haClientFromEnv();
+      return handleKidInternet(db, ha, childId);
+    }
+    if (pathname === "/kid/internet/mode" && method === "POST") {
+      const ha = options.ha ?? haClientFromEnv();
+      return handleKidInternetMode(db, ha, childId, parse(rawBody));
+    }
     if ((pathname === "/kid/profile" || pathname === "/kid/profile.mobileconfig") && method === "GET") {
       const resolved = await loadResolved(ddb, childId, now());
       const unsigned = await unsignedProfile(resolved, options.kidsIconsDir);
@@ -359,6 +379,7 @@ export function createLocalSites(options: LocalSitesOptions) {
         };
         if (input.restriction_overrides) item.restriction_overrides = input.restriction_overrides;
         if (input.blocked_apps) item.blocked_apps = input.blocked_apps;
+        if (input.allowance_seconds !== undefined) item.allowance_seconds = input.allowance_seconds;
         await send("PutCommand", { TableName: LOGICAL_TABLES.children, Item: item });
         return ok(item);
       }
@@ -406,6 +427,7 @@ export function createLocalSites(options: LocalSitesOptions) {
           category: input.category as string | undefined,
           min_age: input.min_age ?? 0,
           enabled: input.enabled ?? true,
+          homework: input.homework === true,
         };
         if (input.child_subdomain) item.child_subdomain = input.child_subdomain;
         await send("PutCommand", { TableName: LOGICAL_TABLES.websites, Item: item });
@@ -482,6 +504,20 @@ export function createLocalSites(options: LocalSitesOptions) {
     res.writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(body);
   }
 
+  /**
+   * Home Assistant's list of homework hostnames. No device check: HA's address is not in
+   * core.devices. A missing or wrong bearer token is 401, before any row is read.
+   */
+  async function haApi(db: pg.PoolClient, method: string, pathname: string, headers: Record<string, string>, _rawBody: string): Promise<Result> {
+    const expected = readTokenFile(options.homeworkDomainsTokenFile ?? process.env.HA_HOMEWORK_DOMAINS_TOKEN_FILE);
+    if (!tokensMatch(expected, bearerToken(headers.authorization))) throw new HttpError(401, "Unauthorized");
+    if (method === "GET" && pathname === "/api/ha/homework-domains") {
+      return { status: 200, body: await loadHomeworkDomains(db, now()) };
+    }
+    if (method !== "GET" && pathname === "/api/ha/homework-domains") throw new HttpError(405, "Method not allowed");
+    throw new HttpError(404, "Not found");
+  }
+
   /** Apex, an extra launcher host, or {child}.wainwright.fun for a real child. */
   async function servesLauncher(host: string): Promise<boolean> {
     if (host === APEX_HOST || options.launcherHosts?.has(host)) return true;
@@ -517,6 +553,10 @@ export function createLocalSites(options: LocalSitesOptions) {
     }
     if (pathname === "/api/health") return options.tickets(req, res);
     if (pathname === "/api/local/whoami" || pathname === "/api/local/session") return options.tickets(req, res);
+    // Home Assistant is not a device. /api/ha/* checks its own bearer token and nothing else.
+    if (pathname === "/api/ha" || pathname.startsWith("/api/ha/")) {
+      return api(req, res, url, headers, (db, m, p, _q, raw) => haApi(db, m, p, headers, raw));
+    }
     if (pathname === "/pair" || pathname === "/kid" || pathname.startsWith("/kid/")) {
       return api(req, res, url, headers, (db, m, p, _q, raw) => kidApi(db, m, p, headers, raw, peer));
     }

@@ -2,6 +2,7 @@ import type { ResolvedChildConfig } from "../../../packages/shared/scripts/resol
 import type { Child } from "../../../packages/shared/scripts/config";
 import { localAssetUrl, resolveKidApiBase } from "../../../packages/shared/scripts/api-base";
 import { getDeviceToken } from "./deviceAuth";
+import type { InternetCommand, InternetState } from "./internet";
 
 /**
  * The home-network build (served by packages/local on the Mac): the server knows the child from
@@ -99,6 +100,32 @@ export async function saveKidAvatar(avatar: string, token?: string): Promise<str
     throw new Error(typeof data.error === "string" ? data.error : "Could not save avatar");
   }
   return data.avatar as string;
+}
+
+export async function fetchKidInternet(): Promise<InternetState> {
+  const response = await kidFetch("/kid/internet", { method: "GET" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof data.error === "string" ? data.error : "internet controls unavailable");
+  }
+  return data as InternetState;
+}
+
+export async function setKidInternetMode(command: InternetCommand): Promise<InternetState> {
+  const response = await kidFetch("/kid/internet/mode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(command),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 409) {
+    const reason = typeof data.reason === "string" ? data.reason : typeof data.error === "string" ? data.error : "Not now";
+    throw new Error(reason);
+  }
+  if (!response.ok) {
+    throw new Error(typeof data.error === "string" ? data.error : "internet controls unavailable");
+  }
+  return data as InternetState;
 }
 
 export async function unpairDevice(): Promise<void> {

@@ -41,6 +41,10 @@ const listener = createLocalSites({
   log,
 });
 if (!certFile || !keyFile) log("profile signing is not configured: iPad profiles will not be handed out");
+const haUrl = (process.env.HA_URL ?? "https://home.wainwright.fun").trim() || "https://home.wainwright.fun";
+if (!process.env.HA_TOKEN_FILE) log("HA_TOKEN_FILE is not set: internet controls will say they are unavailable");
+else log(`internet controls via ${haUrl}`);
+if (!process.env.HA_HOMEWORK_DOMAINS_TOKEN_FILE) log("HA_HOMEWORK_DOMAINS_TOKEN_FILE is not set: /api/ha/homework-domains will refuse everyone");
 const port = Number(process.env.PORT ?? 43127);
 createServer((req, res) => void listener(req, res)).listen(port, "0.0.0.0", () => log(`tickets listening on :${port}`));
 

@@ -140,10 +140,15 @@ export async function importKids(pool: pg.Pool, hosted: HostedKids, { dryRun = f
       const out: Item = { ...h };
       if (out.date_of_birth === "") delete out.date_of_birth;
       if (!updatePeople) for (const field of PEOPLE_FIELDS) out[field] = l[field];
+      // Home-network only. Hosted children do not carry it, and a re-import must not look like drift.
+      if (out.allowance_seconds === undefined) out.allowance_seconds = l.allowance_seconds ?? 3600;
       return out;
     });
     for (const [name, spec] of Object.entries(KEYS) as [keyof typeof KEYS, (typeof KEYS)[keyof typeof KEYS]][]) {
-      compare(name, hosted[name], await scan(spec.table), spec.key);
+      compare(name, hosted[name], await scan(spec.table), spec.key, (h) => {
+        if (name !== "websites") return h;
+        return { ...h, homework: h.homework === true };
+      });
     }
 
     const localTerms = await scan(LOGICAL_TABLES.termDates);

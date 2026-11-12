@@ -4,6 +4,9 @@ import type { TableConfig } from "./TableEditor";
 import type { FieldDef } from "./TableEditor";
 import { TableEditor } from "./TableEditor";
 import type { Child, App, Website, Theme } from "./api";
+
+/** Child row plus the minutes field the form edits. The API stores seconds. */
+type ChildForm = Child & { allowance_minutes: number };
 import { appIconUrl, websiteIconUrl } from "./iconUrl";
 import { childAvatar, CHILD_COLOR_HEX, hexToRgba } from "./avatars";
 import {
@@ -18,7 +21,7 @@ import { SnackBalanceCard } from "./SnackBalanceCard";
 
 // ── Children ─────────────────────────────────────────────────────
 
-const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean; includePairing?: boolean } = {}): TableConfig<Child> => ({
+const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean; includePairing?: boolean } = {}): TableConfig<ChildForm> => ({
   entityName: "Child",
   pluralName: "Children",
   fields: [
@@ -28,11 +31,12 @@ const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean; in
     { name: "color", label: "Color", type: "select", options: ["red", "green", "blue", "orange", "purple"], required: true },
     { name: "avatar", label: "Avatar", type: "avatar" },
     { name: "locked", label: "Locked", type: "boolean" },
+    { name: "allowance_minutes", label: "Internet minutes", type: "number", required: true },
     { name: "restriction_overrides", label: "Restriction Overrides", type: "restriction-overrides" },
     { name: "blocked_apps", label: "Blocked Apps", type: "blocked-apps" },
   ],
   editTabs: [
-    { label: "Details", fields: ["subdomain", "name", "date_of_birth", "color", "avatar", "locked"] },
+    { label: "Details", fields: ["subdomain", "name", "date_of_birth", "color", "avatar", "locked", "allowance_minutes"] },
     { label: "Restrictions", fields: ["restriction_overrides", "blocked_apps"] },
     ...(opts.includePairing === false ? [] : [{ label: "Pairing", fields: [] as string[], extras: true }]),
     ...(opts.includeSnacks === false ? [] : [{
@@ -45,10 +49,20 @@ const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean; in
       },
     }]),
   ],
-  load: () => getChildren(accessToken),
-  save: (item) => putChild(accessToken, item.subdomain, item),
+  load: async () =>
+    (await getChildren(accessToken)).map((child) => ({
+      ...child,
+      allowance_minutes: Math.round((child.allowance_seconds ?? 3600) / 60),
+    })),
+  save: async (item) => {
+    const minutes = Number(item.allowance_minutes);
+    const clamped = Number.isFinite(minutes) ? Math.max(0, Math.min(1440, Math.round(minutes))) : 60;
+    const { allowance_minutes: minutesField, ...rest } = item;
+    const saved = await putChild(accessToken, item.subdomain, { ...rest, allowance_seconds: clamped * 60 });
+    return { ...saved, allowance_minutes: Number.isFinite(minutesField) ? clamped : minutesField };
+  },
   remove: (item) => deleteChild(accessToken, item.subdomain),
-  emptyItem: () => ({ subdomain: "", name: "", date_of_birth: "", color: "blue", avatar: undefined, locked: true }),
+  emptyItem: () => ({ subdomain: "", name: "", date_of_birth: "", color: "blue", avatar: undefined, locked: true, allowance_minutes: 60 }),
   getKey: (item) => item.subdomain,
 });
 
@@ -96,6 +110,7 @@ const websiteFields = (childOptions: string[]): FieldDef[] => [
   { name: "child_subdomain", label: "Child", type: "select", options: childOptions },
   { name: "min_age", label: "Min Age", type: "number", required: true },
   { name: "enabled", label: "Enabled", type: "boolean" },
+  { name: "homework", label: "Homework", type: "boolean" },
 ];
 
 // ── Themes ────────────────────────────────────────────────────────
@@ -286,6 +301,7 @@ function WebsiteSection({
       category: "",
       min_age: 0,
       enabled: true,
+      homework: false,
       child_subdomain: childSubdomain,
     }),
     getKey: (item) => item.url,
