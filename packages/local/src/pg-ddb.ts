@@ -29,6 +29,8 @@ interface Column {
   type: ColumnType;
   /** Leave the attribute out of the item when the column is null (hosted items omit it). */
   omitNull?: boolean;
+  /** Written when the item omits the attribute. Hosted website scans do not have homework. */
+  missing?: unknown;
 }
 
 interface TableSpec {
@@ -165,6 +167,7 @@ const SPECS: Record<string, TableSpec> = {
       col("min_age", "int"),
       col("enabled", "bool"),
       { ...child(), omitNull: true },
+      col("homework", "bool", { missing: false }),
     ],
   },
   [LOGICAL_TABLES.themes]: {
@@ -178,6 +181,15 @@ const SPECS: Record<string, TableSpec> = {
     columns: [col("key", "text"), col("value", "json"), col("type", "text"), col("overridable", "bool", { omitNull: true })],
   },
 };
+
+/** Whole seconds, 0 to 24 hours. Undefined means the caller did not send one. */
+function parseAllowance(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 86400) {
+    throw new RefusedWrite("allowance_seconds must be a whole number of seconds from 0 to 86400", 400);
+  }
+  return value;
+}
 
 /** Thrown for a write the home network refuses (e.g. undoing a household chore's award here). */
 export class RefusedWrite extends Error {
@@ -303,7 +315,7 @@ export class PgDocumentClient {
     const extra: Item = {};
     for (const [attr, value] of Object.entries(item)) if (!known.has(attr) && value !== undefined) extra[attr] = value;
     const columns = spec.columns.map((c) => c.column);
-    const params = spec.columns.map((c) => toColumn(item[c.attr], c.type));
+    const params = spec.columns.map((c) => toColumn(c.missing !== undefined && (item[c.attr] === undefined || item[c.attr] === null) ? c.missing : item[c.attr], c.type));
     columns.push("extra");
     params.push(JSON.stringify(extra));
     if (spec.source) {
@@ -382,7 +394,7 @@ export class PgDocumentClient {
    */
   private async children(name: string, input: Record<string, any>) {
     const select = `SELECT p.id, p.display_name, to_char(p.date_of_birth, 'YYYY-MM-DD') AS dob, p.color, p.avatar,
-                           s.child_id AS has_settings, s.locked, s.restriction_overrides, s.blocked_apps, s.extra
+                           s.child_id AS has_settings, s.locked, s.restriction_overrides, s.blocked_apps, s.allowance_seconds, s.extra
                     FROM core.people p LEFT JOIN kids.child_settings s ON s.child_id = p.id
                     WHERE p.role = 'child'`;
     const toItem = (row: Record<string, any>): Item => {
@@ -393,6 +405,7 @@ export class PgDocumentClient {
       if (row.has_settings !== null) item.locked = row.locked;
       if (row.restriction_overrides !== null && row.restriction_overrides !== undefined) item.restriction_overrides = row.restriction_overrides;
       if (row.blocked_apps !== null && row.blocked_apps !== undefined) item.blocked_apps = row.blocked_apps;
+      item.allowance_seconds = row.allowance_seconds === null || row.allowance_seconds === undefined ? 3600 : Number(row.allowance_seconds);
       return item;
     };
     if (name === "ScanCommand") {
@@ -422,7 +435,8 @@ export class PgDocumentClient {
          color = EXCLUDED.color, avatar = EXCLUDED.avatar`,
       people,
     );
-    const known = new Set(["subdomain", "name", "date_of_birth", "color", "avatar", "locked", "restriction_overrides", "blocked_apps"]);
+    const allowance = parseAllowance(item.allowance_seconds);
+    const known = new Set(["subdomain", "name", "date_of_birth", "color", "avatar", "locked", "restriction_overrides", "blocked_apps", "allowance_seconds"]);
     const extra: Item = {};
     for (const [attr, value] of Object.entries(item)) if (!known.has(attr) && value !== undefined) extra[attr] = value;
     await this.db.query(
@@ -437,6 +451,10 @@ export class PgDocumentClient {
         JSON.stringify(extra),
       ],
     );
+    // Omitted allowance keeps the column default (or a value already set). Hosted children have no allowance.
+    if (allowance !== undefined) {
+      await this.db.query("UPDATE kids.child_settings SET allowance_seconds = $2 WHERE child_id = $1", [id, allowance]);
+    }
     return {};
   }
 

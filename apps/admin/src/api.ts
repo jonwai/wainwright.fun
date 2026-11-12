@@ -18,6 +18,8 @@ export interface Child {
    *  the site (semi-transparent, unclickable) but are excluded from the
    *  profile whitelist so they cannot be downloaded. */
   blocked_apps?: string[];
+  /** Daily internet allowance once the child turns internet mode on. Default 3600. */
+  allowance_seconds?: number;
 }
 
 export interface App {
@@ -44,6 +46,8 @@ export interface Website {
   /** When set, this website is personal to the named child subdomain and
    *  bypasses age-band assignment (min_age is ignored). */
   child_subdomain?: string;
+  /** Home Assistant only opens this site's hostname during homework mode. */
+  homework?: boolean;
 }
 
 export interface Theme {

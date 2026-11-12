@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import pg from "pg";
+import { haClientFromEnv } from "../src/ha.ts";
 
 const url = process.env.KIDS_TEST_DATABASE_URL;
 // @ts-ignore built bundle
@@ -102,6 +103,64 @@ async function writeScans(dir: string, data: ReturnType<typeof hostedFixture>) {
 let pool: pg.Pool;
 let port = 0;
 let unsignedPort = 0;
+const HA_TOKEN = "ha-test-token";
+const DOMAINS_TOKEN = "domains-test-token";
+let haTokenFile = "";
+let domainsTokenFile = "";
+let haDown = false;
+const haCalls: { method: string; path: string; body: unknown }[] = [];
+const haServer = createServer((req, res) => {
+  if (haDown) {
+    req.socket.destroy();
+    return;
+  }
+  const chunks: Buffer[] = [];
+  req.on("data", (chunk) => chunks.push(chunk));
+  req.on("end", () => {
+    const text = Buffer.concat(chunks).toString("utf8");
+    let body: unknown = null;
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = text;
+      }
+    }
+    const reqPath = req.url ?? "";
+    haCalls.push({ method: req.method ?? "GET", path: reqPath, body });
+    if (req.headers.authorization !== `Bearer ${HA_TOKEN}`) {
+      res.writeHead(401, { "content-type": "application/json" }).end(JSON.stringify({ error: "no" }));
+      return;
+    }
+    const kid = /^\/api\/wainwright_fun\/kids\/([a-z]+)(\/mode)?$/.exec(reqPath);
+    if (!kid) {
+      res.writeHead(404).end("{}");
+      return;
+    }
+    if (kid[1] === "joanna") {
+      res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ error: "unknown child" }));
+      return;
+    }
+    const command = (body ?? {}) as { mode?: string; homework_declared?: string; allowance_seconds?: number };
+    if (req.method === "POST" && command.mode === "off") {
+      res.writeHead(409, { "content-type": "application/json" }).end(JSON.stringify({ reason: "Internet stays on until the timer ends" }));
+      return;
+    }
+    const next = {
+      child_id: kid[1],
+      date: "2026-11-12",
+      mode: command.mode ?? "off",
+      homework_declared: command.homework_declared === "skipped" ? "skipped" : command.mode === "homework" ? "homework" : "none",
+      internet_used_today: command.mode === "internet",
+      internet_available: true,
+      allowance_seconds: command.allowance_seconds ?? 999,
+      seconds_left: command.mode === "internet" || command.mode === "homework" ? 1200 : 3600,
+      internet_ends_at: command.mode === "internet" ? "2026-11-12T13:00:00.000Z" : null,
+      resets_at: "2026-11-13T00:00:00.000Z",
+    };
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(next));
+  });
+});
 const servers: { close(): void }[] = [];
 let scans = "";
 let iconsDir = "";
@@ -168,6 +227,13 @@ before(async () => {
   await writeFile(path.join(iconsDir, "app-icons", "111.jpg"), "jpg");
   await writeScans(scans, hostedFixture());
   certFile = path.join(tmp, "cert.pem");
+  haTokenFile = path.join(tmp, "ha-token");
+  domainsTokenFile = path.join(tmp, "domains-token");
+  await writeFile(haTokenFile, `${HA_TOKEN}\n`);
+  await writeFile(domainsTokenFile, `${DOMAINS_TOKEN}\n`);
+  await new Promise<void>((resolve) => haServer.listen(0, "127.0.0.1", resolve));
+  const haPort = (haServer.address() as AddressInfo).port;
+  servers.push(haServer);
   const keyFile = path.join(tmp, "key.pem");
   execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=Test Profile Signing", "-days", "1", "-keyout", keyFile, "-out", certFile], { stdio: "ignore" });
   const log = process.env.KIDS_TEST_LOG ? (l: string) => console.error(l) : () => {};
@@ -181,6 +247,8 @@ before(async () => {
     trackIconFetch: (done: Promise<void>) => iconFetches.push(done),
     now: () => new Date("2026-10-08T12:00:00Z"),
     launcherHosts: new Set(["preview.example"]),
+    ha: haClientFromEnv({ HA_URL: `http://127.0.0.1:${haPort}`, HA_TOKEN_FILE: haTokenFile }),
+    homeworkDomainsTokenFile: domainsTokenFile,
   };
   port = await listen(createLocalSites({ ...options, signer: { certFile, keyFile } }));
   unsignedPort = await listen(createLocalSites({ ...options, signer: null }));
@@ -610,4 +678,135 @@ test("POST /api/icons/fetch backfills a missing icon and leaves an existing one"
   assert.equal(icon.status, 200);
   assert.equal(icon.headers["content-type"], "image/png");
   await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, { method: "DELETE" });
+});
+
+test("homework domains need the bearer token and skip the device check", { skip: !url }, async () => {
+  const bible = "https:/bible.wainwright.fun/";
+  const news = "https://www.bbc.co.uk/news";
+  const cbbc = "https://www.BBC.co.uk/cbbc";
+  const plain = "https://play.example/";
+  const off = "https://closed.example/";
+  const zoeSite = "https://zoe.example/stories";
+  const sites = [
+    [bible, { name: "Bible", homework: true, min_age: 0, enabled: true }],
+    [news, { name: "Newsround", homework: true, min_age: 6, enabled: true }],
+    [cbbc, { name: "CBBC", homework: true, min_age: 6, enabled: true }],
+    [plain, { name: "Play", homework: false, min_age: 0, enabled: true }],
+    [off, { name: "Closed", homework: true, min_age: 0, enabled: false }],
+    [zoeSite, { name: "Zoe stories", homework: true, min_age: 0, enabled: true, child_subdomain: "zoe" }],
+  ] as const;
+  try {
+    for (const [site, body] of sites) {
+      assert.equal((await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, { method: "PUT", body })).status, 200);
+    }
+    const listed = await admin("/api/websites", MAC);
+    const bibleRow = listed.json.find((site: { url: string }) => site.url === bible);
+    assert.equal(bibleRow.homework, true);
+    assert.equal(listed.json.find((site: { url: string }) => site.url === plain).homework, false);
+    assert.equal((await pool.query("SELECT homework FROM kids.websites WHERE url = $1", [bible])).rows[0].homework, true);
+
+    const stranger = await apex("/api/ha/homework-domains", STRANGER);
+    assert.equal(stranger.status, 401, "a wrong device is not consulted; the token is");
+    assert.equal(stranger.json.error, "Unauthorized");
+    assert.equal((await apex("/api/ha/homework-domains", null)).status, 401);
+    assert.equal((await apex("/api/ha/homework-domains", null, { headers: { authorization: "Bearer wrong" } })).status, 401);
+    assert.equal((await apex("/api/ha/homework-domains", MAC, { method: "POST", headers: { authorization: `Bearer ${DOMAINS_TOKEN}` } })).status, 405);
+    const saved = await readFile(domainsTokenFile, "utf8");
+    await unlink(domainsTokenFile);
+    assert.equal((await apex("/api/ha/homework-domains", null, { headers: { authorization: `Bearer ${DOMAINS_TOKEN}` } })).status, 401);
+    await writeFile(domainsTokenFile, saved);
+
+    const domains = await apex("/api/ha/homework-domains", null, { headers: { authorization: `Bearer ${DOMAINS_TOKEN}` } });
+    assert.equal(domains.status, 200);
+    assert.deepEqual(domains.json.domains, ["bible.wainwright.fun", "www.bbc.co.uk", "zoe.example"]);
+    assert.deepEqual(
+      domains.json.sites.map((site: { name: string; domain: string; child_id: string | null }) => [site.name, site.domain, site.child_id]),
+      [
+        ["Bible", "bible.wainwright.fun", null],
+        ["CBBC", "www.bbc.co.uk", null],
+        ["Newsround", "www.bbc.co.uk", null],
+        ["Zoe stories", "zoe.example", "zoe"],
+      ],
+    );
+    assert.equal(domains.json.sites.filter((site: { domain: string }) => site.domain === "www.bbc.co.uk").length, 2);
+    assert.equal(domains.json.children.lydia.allowance_seconds, 3600);
+    assert.equal(domains.json.children.joanna.allowance_seconds, 3600);
+    assert.equal(domains.json.updated_at, "2026-10-08T12:00:00.000Z");
+    assert.doesNotMatch(domains.text, new RegExp(DOMAINS_TOKEN));
+    assert.equal((await call("hannah.wainwright.fun", "/api/ha/homework-domains", null, { headers: { authorization: `Bearer ${DOMAINS_TOKEN}` } })).status, 200);
+    assert.notEqual((await call("tickets.wainwright.fun", "/api/ha/homework-domains", null, { headers: { authorization: `Bearer ${DOMAINS_TOKEN}` } })).status, 200);
+  } finally {
+    if (!existsSync(domainsTokenFile)) await writeFile(domainsTokenFile, `${DOMAINS_TOKEN}\n`);
+    for (const [site] of sites) await admin(`/api/websites/${encodeURIComponent(site)}`, MAC, { method: "DELETE" });
+    await settleIcons();
+  }
+});
+
+test("a child's internet mode follows the device, and Home Assistant failures stay on that route", { skip: !url }, async () => {
+  haCalls.length = 0;
+  haDown = false;
+  const beforeCalls = haCalls.length;
+  const joanna = await apex("/kid/internet", MAC, { headers: { cookie: "tickets_act_as=joanna" } });
+  assert.equal(joanna.status, 200);
+  assert.deepEqual(joanna.json, { available: false });
+  assert.equal(haCalls.length, beforeCalls, "Joanna is not sent to Home Assistant");
+  assert.equal((await apex("/kid/internet", null)).status, 403);
+  assert.equal((await apex("/kid/internet", MAC)).status, 401);
+
+  const zoe = await apex("/kid/internet", ZOE);
+  assert.equal(zoe.status, 200);
+  assert.equal(zoe.json.available, true);
+  assert.equal(zoe.json.child_id, "zoe");
+  assert.equal(zoe.json.allowance_seconds, 3600, "the database allowance replaces Home Assistant's copy");
+  assert.equal(haCalls.at(-1)?.path, "/api/wainwright_fun/kids/zoe");
+  assert.doesNotMatch(zoe.text, new RegExp(HA_TOKEN));
+
+  const posted = await apex("/kid/internet/mode", ZOE, {
+    method: "POST",
+    body: { mode: "internet", child_id: "hannah", allowance_seconds: 1 },
+  });
+  assert.equal(posted.status, 200);
+  assert.equal(posted.json.child_id, "zoe");
+  assert.equal(posted.json.mode, "internet");
+  assert.equal(haCalls.at(-1)?.path, "/api/wainwright_fun/kids/zoe/mode");
+  assert.deepEqual(haCalls.at(-1)?.body, { mode: "internet", allowance_seconds: 3600 });
+  assert.equal((await apex("/kid/config", ZOE)).status, 200, "the launcher still loads in internet mode");
+
+  await admin("/api/children/lydia", MAC, {
+    method: "PUT",
+    body: { name: "Lydia", date_of_birth: "2019-04-25", color: "green", avatar: "🐸", locked: true, allowance_seconds: 1800 },
+  });
+  const lydia = await call("lydia.wainwright.fun", "/kid/internet/mode", LYDIA, { method: "POST", body: { mode: "homework" } });
+  assert.equal(lydia.status, 200);
+  assert.equal(lydia.json.mode, "homework");
+  assert.equal(haCalls.at(-1)?.path, "/api/wainwright_fun/kids/lydia/mode");
+  assert.deepEqual(haCalls.at(-1)?.body, { mode: "homework" });
+  const kept = await admin("/api/children/lydia", MAC, {
+    method: "PUT",
+    body: { name: "Lydia", date_of_birth: "2019-04-25", color: "green", avatar: "🐸", locked: true },
+  });
+  assert.equal(kept.status, 200);
+  assert.equal((await pool.query("SELECT allowance_seconds FROM kids.child_settings WHERE child_id = 'lydia'")).rows[0].allowance_seconds, 1800);
+  assert.equal((await admin("/api/children", MAC)).json.find((child: { subdomain: string }) => child.subdomain === "lydia").allowance_seconds, 1800);
+
+  const blocked = await apex("/kid/internet/mode", ZOE, { method: "POST", body: { mode: "off" } });
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.json.reason, "Internet stays on until the timer ends");
+
+  const savedToken = await readFile(haTokenFile, "utf8");
+  await writeFile(haTokenFile, "");
+  const missing = await apex("/kid/internet", ZOE);
+  assert.equal(missing.status, 503);
+  assert.equal(missing.json.error, "internet controls unavailable");
+  await writeFile(haTokenFile, savedToken);
+
+  haDown = true;
+  try {
+    const down = await apex("/kid/internet", ZOE);
+    assert.equal(down.status, 503);
+    assert.equal(down.json.error, "internet controls unavailable");
+    assert.equal((await apex("/kid/config", ZOE)).status, 200);
+  } finally {
+    haDown = false;
+  }
 });
