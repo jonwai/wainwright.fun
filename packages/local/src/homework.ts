@@ -130,11 +130,15 @@ export async function loadHomeworkDomains(db: Queryable, now = new Date()): Prom
   );
 }
 
-/** One of the four HA mode bodies. Internet allowance always comes from the database. */
+/**
+ * One of the four kid mode bodies. Internet allowance always comes from the database.
+ * `end_break` is a parent override and is never accepted here, alone or combined.
+ */
 export function internetModeCommand(
   input: Record<string, unknown>,
   allowance: number,
 ): { ok: true; body: Record<string, unknown> } | { ok: false } {
+  if (Object.prototype.hasOwnProperty.call(input, "end_break")) return { ok: false };
   const mode = input.mode;
   const declared = input.homework_declared;
   if (declared !== undefined && mode !== undefined) return { ok: false };
@@ -143,6 +147,14 @@ export function internetModeCommand(
   if (mode === "homework" || mode === "off") return { ok: true, body: { mode } };
   if (mode === "internet") return { ok: true, body: { mode: "internet", allowance_seconds: allowance } };
   return { ok: false };
+}
+
+/**
+ * Parent override that ends the internet break early. The body is only this key:
+ * Home Assistant rejects it combined with `mode` or `homework_declared`.
+ */
+export function endBreakCommand(): { end_break: true } {
+  return { end_break: true };
 }
 
 export function passHaReason(body: unknown): Record<string, unknown> {
@@ -193,6 +205,16 @@ export async function handleKidInternetMode(db: Queryable, ha: HaClient, childId
   }
   try {
     return await presentKid(db, childId, await ha.setMode(childId, command.body));
+  } catch {
+    return unavailableRoute();
+  }
+}
+
+/** Parent override. Joanna and anyone else Home Assistant does not know get no control. */
+export async function handleEndBreak(db: Queryable, ha: HaClient, childId: string): Promise<RouteResult> {
+  if (!isInternetChild(childId)) return { status: 404, body: { available: false } };
+  try {
+    return await presentKid(db, childId, await ha.setMode(childId, endBreakCommand()));
   } catch {
     return unavailableRoute();
   }

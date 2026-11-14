@@ -15,13 +15,14 @@ import {
   getWebsites, putWebsite, deleteWebsite,
   getThemes, putTheme, deleteTheme,
 } from "./api";
+import { childHasInternetControls, EndBreakCard } from "./EndBreakCard";
 import { PairQrCard } from "./PairQrCard";
 import { RestrictionsPanel as RestrictionsPanelImpl } from "./RestrictionsPanel";
 import { SnackBalanceCard } from "./SnackBalanceCard";
 
 // ── Children ─────────────────────────────────────────────────────
 
-const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean; includePairing?: boolean } = {}): TableConfig<ChildForm> => ({
+const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean; includePairing?: boolean; includeInternetBreak?: boolean } = {}): TableConfig<ChildForm> => ({
   entityName: "Child",
   pluralName: "Children",
   fields: [
@@ -36,7 +37,18 @@ const childrenConfig = (accessToken: string, opts: { includeSnacks?: boolean; in
     { name: "blocked_apps", label: "Blocked Apps", type: "blocked-apps" },
   ],
   editTabs: [
-    { label: "Details", fields: ["subdomain", "name", "date_of_birth", "color", "avatar", "locked", "allowance_minutes"] },
+    {
+      label: "Details",
+      fields: ["subdomain", "name", "date_of_birth", "color", "avatar", "locked", "allowance_minutes"],
+      extrasFn: opts.includeInternetBreak
+        ? (item, isNew) => {
+            if (isNew) return null;
+            const childId = String(item.subdomain ?? "");
+            if (!childHasInternetControls(childId)) return null;
+            return <EndBreakCard accessToken={accessToken} childId={childId} />;
+          }
+        : undefined,
+    },
     { label: "Restrictions", fields: ["restriction_overrides", "blocked_apps"] },
     ...(opts.includePairing === false ? [] : [{ label: "Pairing", fields: [] as string[], extras: true }]),
     ...(opts.includeSnacks === false ? [] : [{
@@ -132,10 +144,10 @@ const themesConfig = (accessToken: string): TableConfig<Theme> => ({
 
 // ── Exported components ───────────────────────────────────────────
 
-export function ChildrenPanel({ accessToken, includeSnacks = true, includePairing = true }: { accessToken: string; includeSnacks?: boolean; includePairing?: boolean }) {
+export function ChildrenPanel({ accessToken, includeSnacks = true, includePairing = true, includeInternetBreak = false }: { accessToken: string; includeSnacks?: boolean; includePairing?: boolean; includeInternetBreak?: boolean }) {
   return (
     <IconGridEditor
-      config={childrenConfig(accessToken, { includeSnacks, includePairing }) as unknown as TableConfig<Record<string, unknown>>}
+      config={childrenConfig(accessToken, { includeSnacks, includePairing, includeInternetBreak }) as unknown as TableConfig<Record<string, unknown>>}
       iconUrl={() => null}
       fallbackEmoji="🌟"
       itemEmoji={(item) => childAvatar((item as unknown as Child).avatar)}

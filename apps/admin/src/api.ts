@@ -137,6 +137,46 @@ export const putChild = (t: string, subdomain: string, child: Partial<Child>) =>
 export const deleteChild = (t: string, subdomain: string) =>
   apiDelete(t, `children/${encodeURIComponent(subdomain)}`);
 
+/** Home Assistant's internet/break state for one child, as the admin route returns it. */
+export interface ChildInternetState {
+  available?: boolean;
+  on_break?: boolean;
+  break_ends_at?: string | null;
+  break_seconds_left?: number;
+  homework_available?: boolean;
+  internet_available?: boolean;
+  mode?: string;
+}
+
+/**
+ * Current break state, or null when Home Assistant (or this child) has none to show.
+ * The End break button stays usable either way.
+ */
+export async function fetchChildInternet(accessToken: string, childId: string): Promise<ChildInternetState | null> {
+  const res = await fetchWithAuth(accessToken, `children/${encodeURIComponent(childId)}/internet`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+/** Parent override: POST {end_break:true} to Home Assistant for this child. */
+export async function endChildBreak(accessToken: string, childId: string): Promise<ChildInternetState> {
+  const res = await fetchWithAuth(accessToken, `children/${encodeURIComponent(childId)}/end-break`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const error = data && typeof data === "object" && "error" in data && typeof data.error === "string" ? data.error : "";
+    const reason = data && typeof data === "object" && "reason" in data && typeof data.reason === "string" ? data.reason : "";
+    if (res.status === 503 || error === "internet controls unavailable") {
+      throw new Error("Internet controls aren't available right now.");
+    }
+    throw new Error(reason || error || `Couldn't end the break (${res.status})`);
+  }
+  return data as ChildInternetState;
+}
+
 // ── Apps ──────────────────────────────────────────────────────────
 
 export const getApps = (t: string, type?: "app" | "system") =>
