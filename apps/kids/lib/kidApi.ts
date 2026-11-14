@@ -102,6 +102,62 @@ export async function saveKidAvatar(avatar: string, token?: string): Promise<str
   return data.avatar as string;
 }
 
+export interface SantaOption {
+  id: string;
+  label: string;
+  emoji: string;
+}
+
+export interface SantaQuestion {
+  id: string;
+  prompt: string;
+  options: SantaOption[];
+}
+
+export interface SantaLetterRecord {
+  id: string;
+  submittedAt: string;
+  answers: Record<string, { prompt: string; picks: SantaOption[]; favourite: string | null }>;
+  ownLine: string | null;
+  letterText: string;
+  drawingPng: string | null;
+}
+
+export interface SantaFormState {
+  open: boolean;
+  child?: { id: string; name: string };
+  style?: "reading" | "tiles";
+  maxPicks?: number;
+  questions?: SantaQuestion[];
+  latest?: SantaLetterRecord | null;
+}
+
+export async function fetchKidSanta(): Promise<SantaFormState> {
+  const response = await kidFetch("/kid/santa", { method: "GET" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof data.error === "string" ? data.error : "Could not load the letter");
+  }
+  return data as SantaFormState;
+}
+
+export async function sendKidSanta(body: {
+  answers: Record<string, { picks: string[]; favourite: string | null }>;
+  ownLine: string;
+  drawing: string | null;
+}): Promise<SantaLetterRecord> {
+  const response = await kidFetch("/kid/santa", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof data.error === "string" ? data.error : "Could not send the letter");
+  }
+  return data.letter as SantaLetterRecord;
+}
+
 export async function fetchKidInternet(): Promise<InternetState> {
   const response = await kidFetch("/kid/internet", { method: "GET" });
   const data = await response.json().catch(() => ({}));

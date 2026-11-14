@@ -4,7 +4,7 @@
  *
  *   wainwright.fun              the kids' launcher; the child is the device's IP (core.devices), a parent
  *                               may pick a child to look at. /kid/config, /kid/avatar, /kid/profile,
- *                               /kid/internet, /kid/internet/mode.
+ *                               /kid/internet, /kid/internet/mode, /kid/santa.
  *                               GET /api/ha/homework-domains is the only API that skips the device
  *                               check (Home Assistant is not a device). It needs Authorization: Bearer.
  *   {child}.wainwright.fun      the same launcher, when the label is a child in core.people
@@ -16,6 +16,7 @@
  *                               restrictions, term dates). Parents' devices only; never a child's
  *                               device. Devices are managed here (core.devices), not in Snacks.
  *                               POST /api/children/{child}/end-break ends that child's internet break.
+ *                               GET /api/admin/santa-letters is each child's latest letter to Santa.
  *   www.wainwright.fun          301 to wainwright.fun (as the hosted CloudFront function).
  *   anything else               tickets (tickets.wainwright.fun, health checks).
  *
@@ -36,6 +37,7 @@ import { ensureAppIcon, ensureWebsiteIcon, fetchMissingIcons, type IconSubject }
 import { isAvatar, loadResolved, loadRows, sha256, signProfile, SigningUnavailable, toKidPayload, unsignedProfile, type Signer } from "./kids.js";
 import { LOGICAL_TABLES, PgDocumentClient, type PgDocumentClientOptions } from "./pg-ddb.js";
 import { tryHandleTermDatesRoute } from "./routes.js";
+import { getSantaLetter, listSantaLetters, postSantaLetter } from "./santa.js";
 
 export const APEX_HOST = "wainwright.fun";
 export const ADMIN_HOST = "admin.wainwright.fun";
@@ -273,6 +275,13 @@ export function createLocalSites(options: LocalSitesOptions) {
       const ha = options.ha ?? haClientFromEnv();
       return handleKidInternetMode(db, ha, childId, parse(rawBody));
     }
+    if (pathname === "/kid/santa" && method === "GET") {
+      return getSantaLetter(db, childId, viewer.child.name, now());
+    }
+    if (pathname === "/kid/santa" && method === "POST") {
+      return postSantaLetter(db, childId, viewer.child.name, rawBody, viewer.ip, now());
+    }
+    if (pathname === "/kid/santa") throw new HttpError(405, "Method not allowed");
     if ((pathname === "/kid/profile" || pathname === "/kid/profile.mobileconfig") && method === "GET") {
       const resolved = await loadResolved(ddb, childId, now());
       const unsigned = await unsignedProfile(resolved, options.kidsIconsDir);
@@ -321,6 +330,10 @@ export function createLocalSites(options: LocalSitesOptions) {
     const body = () => parse(rawBody);
     const ok = (value: unknown, status = 200): Result => ({ status, body: value });
 
+    if (resource === "admin" && resourceId === "santa-letters") {
+      if (method !== "GET") throw new HttpError(405, "Method not allowed");
+      return listSantaLetters(db);
+    }
     if (resource === "admin") return adminDirectory(db, method, resourceId, query, rawBody, viewer);
 
     if (["budgets", "budget", "chores"].includes(resource)) {

@@ -594,4 +594,334 @@ a {
   .birthday-confetti {
     display: none;
   }
+
+  .santa-flake,
+  .santa-twinkle {
+    animation: none;
+  }
+
+  .santa-flake {
+    top: 0.35rem;
+    opacity: 0.8;
+  }
+}
+
+/* ── Letter to Santa (local launcher, after opening day) ───────── */
+
+.santa-letter {
+  --santa-red: #b42318;
+  --santa-green: #1f7a4d;
+  --santa-gold: #c9a227;
+  --santa-paper: #fffaf3;
+  position: relative;
+  overflow: hidden;
+  margin-right: 3.5rem;
+  padding: 1.25rem 1.15rem 1.35rem;
+  border: 3px solid var(--santa-red);
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(201, 162, 39, 0.2), transparent 32%),
+    radial-gradient(circle at 90% 10%, rgba(31, 122, 77, 0.16), transparent 28%),
+    linear-gradient(180deg, #fffdf8 0%, #f4fff6 100%);
+  box-shadow: 0 16px 40px rgba(180, 35, 24, 0.12);
+}
+
+.santa-sky {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.santa-flake {
+  position: absolute;
+  top: -1.2rem;
+  left: calc(var(--i) * 8.2%);
+  color: #fff;
+  font-size: 0.95rem;
+  text-shadow: 0 0 6px rgba(180, 35, 24, 0.35);
+  animation: santa-fall 9s linear infinite;
+  animation-delay: calc(var(--i) * -0.72s);
+}
+
+.santa-flake::before {
+  content: "❄";
+}
+
+.santa-twinkle {
+  position: absolute;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--santa-gold);
+  box-shadow: 0 0 8px var(--santa-gold);
+  animation: santa-twinkle 2.4s ease-in-out infinite;
+}
+
+.santa-twinkle-a { top: 0.8rem; right: 18%; }
+.santa-twinkle-b { top: 1.6rem; left: 22%; animation-delay: -0.8s; background: #fff; }
+.santa-twinkle-c { bottom: 1.2rem; right: 12%; animation-delay: -1.4s; }
+
+@keyframes santa-fall {
+  0% { transform: translateY(0); opacity: 0; }
+  12% { opacity: 0.9; }
+  100% { transform: translateY(28rem); opacity: 0.15; }
+}
+
+@keyframes santa-twinkle {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.santa-body {
+  position: relative;
+  z-index: 1;
+}
+
+.santa-kicker {
+  margin: 0;
+  color: var(--santa-green);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.santa-title {
+  margin: 0.15rem 0 0.4rem;
+  color: var(--santa-red);
+  font-size: clamp(1.7rem, 5vw, 2.3rem);
+  line-height: 1.1;
+}
+
+.santa-intro,
+.santa-hint,
+.santa-problem {
+  margin: 0 0 0.9rem;
+}
+
+.santa-intro { color: var(--color-text); }
+
+.santa-hint { color: var(--santa-green); font-weight: 800; }
+
+.santa-problem { color: var(--santa-red); font-weight: 800; }
+
+.santa-question {
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.santa-question legend {
+  margin-bottom: 0.55rem;
+  padding: 0;
+  font-weight: 800;
+}
+
+.santa-letter.is-reading .santa-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.santa-letter.is-tiles .santa-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.7rem;
+}
+
+.santa-option {
+  position: relative;
+  display: flex;
+  min-height: 3rem;
+  border: 2px solid rgba(31, 122, 77, 0.28);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.santa-letter.is-reading .santa-option { flex: 1 1 13.5rem; }
+
+.santa-letter.is-tiles .santa-option { min-height: 6.5rem; }
+
+.santa-option.is-selected {
+  border-color: var(--santa-green);
+  background: #e7f6ec;
+}
+
+.santa-option.is-favourite {
+  border-color: var(--santa-gold);
+  box-shadow: inset 0 0 0 2px var(--santa-gold);
+}
+
+.santa-option-main,
+.santa-star,
+.santa-send,
+.santa-secondary,
+.santa-clear,
+.santa-pen {
+  font: inherit;
+  cursor: pointer;
+}
+
+.santa-option-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.55rem 2.4rem 0.55rem 0.75rem;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.santa-letter.is-tiles .santa-option-main {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.7rem 0.4rem 0.55rem;
+  text-align: center;
+}
+
+.santa-emoji { font-size: 1.35rem; line-height: 1; }
+
+.santa-letter.is-tiles .santa-emoji { font-size: 2.6rem; }
+
+.santa-label { font-weight: 800; line-height: 1.2; }
+
+.santa-star {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--santa-gold);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.santa-own {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0.9rem;
+  font-weight: 800;
+}
+
+.santa-own input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.55rem 0.8rem;
+  border: 2px solid rgba(180, 35, 24, 0.28);
+  border-radius: 14px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+}
+
+.santa-draw { margin-bottom: 0.9rem; }
+
+.santa-draw-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-weight: 800;
+}
+
+.santa-pens { display: flex; align-items: center; gap: 0.4rem; }
+
+.santa-pen {
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(27, 27, 47, 0.2);
+}
+
+.santa-pen.is-selected { box-shadow: 0 0 0 2px var(--santa-gold); }
+
+.santa-clear,
+.santa-secondary,
+.santa-send {
+  min-height: 2.6rem;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.santa-clear,
+.santa-secondary {
+  padding: 0.35rem 0.9rem;
+  border: 2px solid var(--santa-green);
+  background: #fff;
+  color: var(--santa-green);
+}
+
+.santa-draw canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: none;
+  border: 2px dashed var(--santa-gold);
+  border-radius: 16px;
+  background: var(--santa-paper);
+}
+
+.santa-paper {
+  margin: 0 0 0.9rem;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  background: var(--santa-paper);
+  box-shadow: inset 0 0 0 2px rgba(201, 162, 39, 0.45);
+}
+
+.santa-paper h3 {
+  margin: 0 0 0.4rem;
+  color: var(--santa-red);
+}
+
+.santa-paper pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+  font-weight: 700;
+}
+
+.santa-paper img {
+  display: block;
+  width: min(100%, 28rem);
+  margin-top: 0.7rem;
+  border-radius: 12px;
+}
+
+.santa-actions,
+.santa-sent {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.santa-send {
+  padding: 0.7rem 1.2rem;
+  border: 0;
+  background: var(--santa-red);
+  color: #fff;
+  font-size: 1.15rem;
+  box-shadow: 0 10px 20px rgba(180, 35, 24, 0.22);
+}
+
+.santa-send:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.santa-on-the-way {
+  margin: 0.2rem 0 0.8rem;
+  color: var(--santa-green);
+  font-size: 1.25rem;
+  font-weight: 800;
 }
