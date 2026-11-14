@@ -77,11 +77,11 @@ const LOVE: SantaOption[] = [
   choice("arts", "Arts & crafts", "🎨", "arts and crafts with lots of colour", "arts and crafts", true),
   choice("jigsaws", "Jigsaws", "🧩", "doing jigsaws", "jigsaws", true),
   choice("board-games", "Board games", "🎲", "playing board games with my family", "board games", true),
-  choice("pretend", "Pretend play", "🎭", "playing pretend", "pretend play"),
+  choice("pretend", "Pretend play", "🎭", "playing pretend", "playing pretend"),
   choice("dressing-up", "Dressing up & jewellery", "💍", "dressing up and wearing jewellery", "dressing up"),
   choice("cars", "Cars & trains", "🚂", "cars and trains", "cars and trains", true),
   choice("science", "Science", "🔬", "science and finding out how things work", "science"),
-  choice("outside", "Playing outside", "🌳", "playing outside", "outside"),
+  choice("outside", "Playing outside", "🌳", "playing outside", "playing outside"),
   choice("music", "Music", "🎵", "music and singing", "music"),
   choice("soft-toys", "Soft toys & stories", "🧸", "soft toys and bedtime stories", "soft toys", true),
   choice("dolls", "Looking after baby dolls", "👶", "looking after baby dolls", "baby dolls", true),
@@ -146,8 +146,8 @@ const PRETEND_OPTIONS: SantaOption[] = [
 ];
 
 const WHERE_OPTIONS: SantaOption[] = [
-  choice("outside", "Outside", "☀️", "outside in the fresh air", "outside"),
-  choice("bath", "In the bath", "🛁", "in the bath with lots of splashing", "the bath"),
+  choice("outside", "Outside", "☀️", "outside in the fresh air", "playing outside"),
+  choice("bath", "In the bath", "🛁", "in the bath with lots of splashing", "bath time"),
   choice("den", "In a den or tunnel", "⛺", "in a den or a tunnel", "a den"),
   choice("indoors", "Quietly indoors", "🛋️", "quietly indoors", "quiet time"),
 ];
@@ -462,7 +462,7 @@ function foldFavourite(sentence: string, short: string, plural: boolean, voice: 
   const bare = sentence.replace(/[.!]$/, "");
   if (voice === "toddler") return plural ? `${bare}, but ${short} are the best!` : `${bare}, but ${short} is the best!`;
   if (voice === "younger") return plural ? `${bare}, but ${short} are the best.` : `${bare}, but ${short} is the best.`;
-  return plural ? `${bare}, but the best of all is ${short}.` : `${bare}, but ${short} is the best of all.`;
+  return plural ? `${bare}, but ${short} are the best of all.` : `${bare}, but ${short} is the best of all.`;
 }
 
 interface BuiltSection {

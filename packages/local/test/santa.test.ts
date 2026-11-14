@@ -487,7 +487,7 @@ const ZOE_LETTER = `Dear Santa,
 
 My name is Zoe and I'm 6. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
 
-I love playing outside, playing pretend and looking after baby dolls, but outside is the best.
+I love playing outside, playing pretend and looking after baby dolls, but playing outside is the best.
 
 It makes me smile to think about Bluey and Frozen.
 
