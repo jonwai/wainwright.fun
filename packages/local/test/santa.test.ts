@@ -11,10 +11,13 @@ import { HttpError } from "../src/app.ts";
 import { getSantaLetter, listSantaLetters, postSantaLetter } from "../src/santa.ts";
 import {
   composeSantaLetter,
+  joinSantaPhrases,
   londonWallTimeToUtc,
   santaChild,
   santaIsOpen,
+  santaLetterBlocks,
   SANTA_OPENS_EUROPE_LONDON,
+  type SantaLetterSection,
 } from "../src/santa-catalog.ts";
 import type { Queryable } from "../src/pg-ddb.ts";
 
@@ -77,6 +80,19 @@ function memoryDb(): Memory {
         };
       }
       if (sql.includes("santa-all")) return { rows: [...letters].reverse() };
+      if (sql.includes("santa-age")) {
+        const dobs: Record<string, string | null> = {
+          hannah: "2017-10-07",
+          lydia: "2019-04-25",
+          zoe: "2020-09-12",
+          ethan: "2022-03-27",
+          joanna: "2025-06-20",
+          pip: null,
+        };
+        const id = String(params[0]);
+        if (!(id in dobs)) return { rows: [] };
+        return { rows: [{ dob: dobs[id] }] };
+      }
       throw new Error(`unexpected sql: ${sql}`);
     },
   };
@@ -144,20 +160,35 @@ test("each child gets their own choices", () => {
   assert.equal(questionIds("lydia", "make").includes("jewellery"), true);
 });
 
-test("the letter thanks Santa and does not promise a present", () => {
-  const text = composeSantaLetter(
-    "Hannah",
-    [{ prompt: "What do you love doing most?", picks: [{ id: "building", label: "Building" }, { id: "music", label: "Music" }], favourite: "music" }],
-    "The snow is sparkly",
-  );
-  assert.match(text, /^Dear Santa,/);
-  assert.match(text, /Here are some things I love…/);
-  assert.match(text, /Building, Music \(my favourite\)/);
-  assert.match(text, /The snow is sparkly/);
-  assert.match(text, /Thank you for reading my letter\. Merry Christmas!/);
-  assert.match(text, /Love, Hannah$/);
-  assert.doesNotMatch(text, /I will get|I'll get|you will get|you'll get|I want you to bring/i);
-});
+const FORBIDDEN = [
+  /\bI want\b/i,
+  /\bbring me\b/i,
+  /\bplease get\b/i,
+  /\bplease bring\b/i,
+  /\bI will get\b/i,
+  /\bI'll get\b/i,
+  /\byou'll get\b/i,
+  /\byou will get\b/i,
+];
+
+function assertGentle(text: string) {
+  for (const pattern of FORBIDDEN) assert.doesNotMatch(text, pattern);
+  assert.doesNotMatch(text, /\bfavorite\b|\bjewelry\b|\bMom\b|\bcozy\b|\bcolor\b/i);
+}
+
+function section(childId: string, questionId: string, ids: string[], favourite: string | null): SantaLetterSection {
+  const question = santaChild(childId).questions.find((item) => item.id === questionId);
+  assert.ok(question, `${childId} ${questionId}`);
+  return {
+    questionId,
+    favourite,
+    picks: ids.map((id) => {
+      const option = question.options.find((item) => item.id === id);
+      assert.ok(option, `${childId} ${questionId} ${id}`);
+      return { id, phrase: option.phrase };
+    }),
+  };
+}
 
 test("the server hides the letter before opening day and refuses a send", async () => {
   const db = memoryDb();
@@ -185,10 +216,13 @@ test("three picks and one favourite are stored, a fourth pick or a second favour
   const letter = (sent.body as { letter: { letterText: string; ownLine: string; drawingPng: string; clientIp?: string; answers: Record<string, { favourite: string | null }> } }).letter;
   assert.equal(letter.clientIp, undefined);
   assert.equal(letter.ownLine, "The snow is sparkly");
-  assert.match(letter.letterText, /Music \(my favourite\)/);
-  assert.match(letter.letterText, /Harry Potter/);
-  assert.match(letter.letterText, /Love, Hannah/);
-  assert.doesNotMatch(letter.letterText, /I will get|I'll get|you'll get/i);
+  assert.match(letter.letterText, /My name is Hannah and I'm 9/);
+  assert.match(letter.letterText, /My very favourite is music and singing, because it makes me so happy/);
+  assert.match(letter.letterText, /anything to do with Harry Potter and Hogwarts/);
+  assert.match(letter.letterText, /I also wanted to tell you: The snow is sparkly\./);
+  assert.match(letter.letterText, /I've drawn you a picture too!/);
+  assert.match(letter.letterText, /Love from Hannah\nMerry Christmas!/);
+  assertGentle(letter.letterText);
   assert.match(letter.drawingPng, /^data:image\/png;base64,/);
   assert.equal(db.letters.length, 1);
   assert.equal(db.letters[0].client_ip, "192.168.1.182");
@@ -235,6 +269,12 @@ test("three picks and one favourite are stored, a fourth pick or a second favour
     answers: { love: { picks: ["shape-sorters", "books"], favourite: "books" }, characters: { picks: ["bluey", "peppa", "night-garden"] } },
   }), null, OPEN);
   assert.equal(joanna.status, 200);
+  const joannaLetter = (joanna.body as { letter: { letterText: string } }).letter.letterText;
+  assert.match(joannaLetter, /My name is Joanna and I'm 1/);
+  assert.match(joannaLetter, /A grown-up helped me write this because I'm still little/);
+  assert.match(joannaLetter, /My favourite is looking at books!/);
+  assert.match(joannaLetter, /Love from Joanna/);
+  assertGentle(joannaLetter);
 
   const again = await postSantaLetter(db, "hannah", "Hannah", JSON.stringify({
     answers: { love: { picks: ["music"], favourite: null } },
@@ -246,6 +286,7 @@ test("three picks and one favourite are stored, a fourth pick or a second favour
   const shown = (latest.body as { open: boolean; style: string; latest: { letterText: string; ownLine: string } }).latest;
   assert.equal((latest.body as { open: boolean }).open, true);
   assert.equal((latest.body as { style: string }).style, "reading");
+  assert.equal((latest.body as { age: number }).age, 9);
   assert.match(shown.letterText, /Second letter/);
   assert.equal(shown.ownLine, "Second letter");
 
@@ -258,6 +299,363 @@ test("three picks and one favourite are stored, a fourth pick or a second favour
   assert.equal(rows.find((row) => row.childId === "lydia")?.latest, null);
   assert.equal(rows.find((row) => row.childId === "joanna")?.submissions, 1);
   assert.equal(rows.find((row) => row.childId === "zoe")?.latest?.answers.love.favourite, "science");
+});
+
+test("one, two and three picks join with British grammar", () => {
+  assert.equal(joinSantaPhrases(["playing outside"]), "playing outside");
+  assert.equal(joinSantaPhrases(["playing outside", "playing pretend"]), "playing outside and playing pretend");
+  assert.equal(
+    joinSantaPhrases(["playing outside", "playing pretend", "looking after baby dolls"]),
+    "playing outside, playing pretend and looking after baby dolls",
+  );
+  assert.equal(
+    joinSantaPhrases(["building things, especially when I can make something really tall", "music and singing"]),
+    "building things, especially when I can make something really tall, and music and singing",
+  );
+  assert.equal(
+    joinSantaPhrases([
+      "building things, especially when I can make something really tall",
+      "arts and crafts with lots of colour",
+      "music and singing",
+    ]),
+    "building things, especially when I can make something really tall, arts and crafts with lots of colour, and music and singing",
+  );
+
+  const one = composeSantaLetter({
+    childId: "lydia",
+    childName: "Lydia",
+    age: 7,
+    sections: [section("lydia", "jigsaws", ["both"], null)],
+    ownLine: null,
+    hasDrawing: false,
+  });
+  assert.match(one, /I love doing jigsaws and playing board games with my family\./);
+
+  const two = composeSantaLetter({
+    childId: "lydia",
+    childName: "Lydia",
+    age: 7,
+    sections: [section("lydia", "love", ["outside", "music"], null)],
+    ownLine: null,
+    hasDrawing: false,
+  });
+  assert.match(two, /The things I love doing most are playing outside and music and singing\./);
+
+  const three = composeSantaLetter({
+    childId: "zoe",
+    childName: "Zoe",
+    age: 6,
+    sections: [section("zoe", "love", ["outside", "pretend", "dolls"], "dolls")],
+    ownLine: null,
+    hasDrawing: false,
+  });
+  assert.match(three, /I love playing outside, playing pretend and looking after baby dolls\./);
+  assert.match(three, /My favourite is looking after baby dolls\. It makes me so happy\./);
+  assert.doesNotMatch(three, /The things I love doing most/);
+});
+
+test("empty questions, a missing age, an own line and a drawing are handled", () => {
+  const skipped = composeSantaLetter({
+    childId: "lydia",
+    childName: "Lydia",
+    age: null,
+    sections: [
+      section("lydia", "love", ["music"], null),
+      { questionId: "characters", picks: [], favourite: null },
+      { questionId: "where", picks: [], favourite: null },
+    ],
+    ownLine: "   ",
+    hasDrawing: false,
+  });
+  assert.match(skipped, /My name is Lydia\. I hope you and Mrs Claus/);
+  assert.doesNotMatch(skipped, /I'm \d|I'm not 1 yet/);
+  assert.match(skipped, /music and singing/);
+  assert.doesNotMatch(skipped, /Harry Potter|quietly indoors|Frozen|wanted to tell you|drawn you a picture/);
+  assert.doesNotMatch(skipped, /What do you love doing most\?/);
+
+  const withNotes = composeSantaLetter({
+    childId: "ethan",
+    childName: "Ethan",
+    age: 0,
+    sections: [section("ethan", "love", ["cars"], null)],
+    ownLine: "I like the snow!",
+    hasDrawing: true,
+  });
+  assert.match(withNotes, /My name is Ethan and I'm not 1 yet\./);
+  assert.match(withNotes, /I also wanted to tell you: I like the snow!/);
+  assert.match(withNotes, /I've drawn you a picture too!/);
+  assert.doesNotMatch(withNotes, /A grown-up helped me write this/);
+  assertGentle(withNotes);
+
+  const toddler = composeSantaLetter({
+    childId: "joanna",
+    childName: "Joanna",
+    age: 1,
+    sections: [section("joanna", "love", ["bath-toys"], "bath-toys")],
+    ownLine: "Peekaboo",
+    hasDrawing: true,
+  });
+  assert.match(toddler, /A grown-up helped me write this because I'm still little\./);
+  assert.match(toddler, /I love splashing about at bath time\. It is my favourite!/);
+  assert.match(toddler, /I wanted to tell you: Peekaboo\./);
+  assert.match(toddler, /I've drawn you a picture too!/);
+  assertGentle(toddler);
+});
+
+test("every choice has a phrase, and none of them asks for a present", () => {
+  const phrases = new Map<string, string>();
+  for (const childId of CHILDREN) {
+    for (const question of santaChild(childId).questions) {
+      assert.ok(question.options.length > 0, question.id);
+      for (const option of question.options) {
+        assert.ok(option.phrase.trim().length > 0, `${childId} ${option.id}`);
+        assert.equal(option.phrase, option.phrase.trim());
+        assertGentle(option.phrase);
+        phrases.set(`${question.id}:${option.id}`, option.phrase);
+      }
+      const ids = question.options.slice(0, 3).map((option) => option.id);
+      for (const count of [1, 2, 3]) {
+        if (ids.length < count) continue;
+        const text = composeSantaLetter({
+          childId,
+          childName: "Sam",
+          age: null,
+          sections: [section(childId, question.id, ids.slice(0, count), count === 3 ? ids[0] : null)],
+          ownLine: null,
+          hasDrawing: false,
+        });
+        assertGentle(text);
+        assert.match(text, /Love from Sam\nMerry Christmas!/);
+      }
+    }
+  }
+  assert.equal(phrases.get("love:building"), "building things, especially when I can make something really tall");
+  assert.equal(phrases.get("jigsaws:both"), "doing jigsaws and playing board games with my family");
+  assert.equal(phrases.get("characters:harry-potter"), "anything to do with Harry Potter and Hogwarts");
+  assert.equal(phrases.get("love:bath-toys"), "splashing about at bath time");
+});
+
+const HANNAH_LETTER = `Dear Santa,
+
+My name is Hannah and I'm 9. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
+
+The things I love doing most are science and finding out how things work, doing jigsaws and playing board games with my family. My very favourite is science and finding out how things work, because it makes me so happy.
+
+What makes me happy is anything to do with Harry Potter and Hogwarts, building worlds in Minecraft and catching Pokémon. My very favourite is anything to do with Harry Potter and Hogwarts, because it makes me so happy.
+
+I love doing jigsaws.
+
+I have such a happy time trying a little science experiment and building with LEGO.
+
+I like to play quietly indoors and in a den or a tunnel.
+
+I also wanted to tell you: The snow is sparkly.
+
+Thank you, Santa, for reading my letter. I hope you have a safe journey on Christmas Eve. I have tried to be kind and helpful this year.
+
+Love from Hannah
+Merry Christmas!`;
+
+const LYDIA_LETTER = `Dear Santa,
+
+My name is Lydia and I'm 7. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
+
+The things I love doing most are building things, especially when I can make something really tall, arts and crafts with lots of colour, and music and singing. My very favourite is building things, especially when I can make something really tall, because it makes me so happy.
+
+What makes me happy is the Frozen stories with Elsa and Anna, Barbie dolls and unicorns with sparkly manes.
+
+I love doing jigsaws and playing board games with my family.
+
+I have such a happy time making beads, jewellery and nail art, and painting and colouring. My very favourite is making beads, jewellery and nail art, because it makes me so happy.
+
+It is fun to pretend, like running a little shop and having a tea party in the kitchen.
+
+For a cosy moment, I love a story book to snuggle up with.
+
+I also wanted to tell you: I have been helping Mum with the little ones.
+
+I've drawn you a picture too!
+
+Thank you, Santa, for reading my letter. I hope you have a safe journey on Christmas Eve. I have tried to be kind and helpful this year.
+
+Love from Lydia
+Merry Christmas!`;
+
+const ZOE_LETTER = `Dear Santa,
+
+My name is Zoe and I'm 6. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
+
+I love playing outside, playing pretend and looking after baby dolls. My favourite is playing outside. It makes me so happy.
+
+I smile about Bluey and Frozen.
+
+I like playing board games with my family.
+
+Making things is fun, like squishing Play-Doh or slime and painting and colouring. My favourite is squishing Play-Doh or slime. It makes me so happy.
+
+I play outside in the fresh air and in the bath with lots of splashing.
+
+At bedtime I love a soft toy to cuddle.
+
+I also wanted to tell you: I like jumping in puddles.
+
+I've drawn you a picture too!
+
+Thank you, Santa. Have a safe journey on Christmas Eve. I have tried to be kind and helpful.
+
+Love from Zoe
+Merry Christmas!`;
+
+const ETHAN_LETTER = `Dear Santa,
+
+My name is Ethan and I'm 4. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
+
+I love cars and trains, building things, especially when I can make something really tall, and playing outside. My favourite is cars and trains. It makes me so happy.
+
+I smile about dinosaurs, Thomas the Tank Engine and PAW Patrol.
+
+Making things is fun, like building with LEGO.
+
+I like to pretend, like being a racing driver or a train driver and being a builder. My favourite is being a racing driver or a train driver. It makes me so happy.
+
+I play outside in the fresh air.
+
+I've drawn you a picture too!
+
+Thank you, Santa. Have a safe journey on Christmas Eve. I have tried to be kind and helpful.
+
+Love from Ethan
+Merry Christmas!`;
+
+const JOANNA_LETTER = `Dear Santa,
+
+My name is Joanna and I'm 1. A grown-up helped me write this because I'm still little. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
+
+I love splashing about at bath time, looking at books and cuddling my soft toys. My favourite is looking at books! It makes me so happy.
+
+I like Bluey, Peppa and In the Night Garden.
+
+At bedtime I love a soft toy to cuddle.
+
+I wanted to tell you: Peekaboo.
+
+I've drawn you a picture too!
+
+Thank you, Santa. Have a safe journey on Christmas Eve. I try to be kind and helpful.
+
+Love from Joanna
+Merry Christmas!`;
+
+test("a sample letter for each child", () => {
+  const letters = {
+    hannah: composeSantaLetter({
+      childId: "hannah",
+      childName: "Hannah",
+      age: 9,
+      sections: [
+        section("hannah", "love", ["science", "jigsaws", "board-games"], "science"),
+        section("hannah", "characters", ["harry-potter", "minecraft", "pokemon"], "harry-potter"),
+        section("hannah", "jigsaws", ["jigsaws"], null),
+        section("hannah", "make", ["science-kit", "lego"], null),
+        section("hannah", "where", ["indoors", "den"], null),
+      ],
+      ownLine: "The snow is sparkly",
+      hasDrawing: false,
+    }),
+    lydia: composeSantaLetter({
+      childId: "lydia",
+      childName: "Lydia",
+      age: 7,
+      sections: [
+        section("lydia", "love", ["building", "arts", "music"], "building"),
+        section("lydia", "characters", ["frozen", "barbie", "unicorns"], null),
+        section("lydia", "jigsaws", ["both"], null),
+        section("lydia", "make", ["jewellery", "painting"], "jewellery"),
+        section("lydia", "pretend", ["shop", "tea-party"], null),
+        section("lydia", "cosy", ["story-book"], null),
+      ],
+      ownLine: "I have been helping Mum with the little ones",
+      hasDrawing: true,
+    }),
+    zoe: composeSantaLetter({
+      childId: "zoe",
+      childName: "Zoe",
+      age: 6,
+      sections: [
+        section("zoe", "love", ["outside", "pretend", "dolls"], "outside"),
+        section("zoe", "characters", ["bluey", "frozen"], null),
+        section("zoe", "jigsaws", ["board-games"], null),
+        section("zoe", "make", ["play-doh", "painting"], "play-doh"),
+        section("zoe", "where", ["outside", "bath"], null),
+        section("zoe", "cosy", ["soft-toy"], null),
+      ],
+      ownLine: "I like jumping in puddles",
+      hasDrawing: true,
+    }),
+    ethan: composeSantaLetter({
+      childId: "ethan",
+      childName: "Ethan",
+      age: 4,
+      sections: [
+        section("ethan", "love", ["cars", "building", "outside"], "cars"),
+        section("ethan", "characters", ["dinosaurs", "thomas", "paw-patrol"], null),
+        section("ethan", "make", ["lego"], null),
+        section("ethan", "pretend", ["racing", "builder"], "racing"),
+        section("ethan", "where", ["outside"], null),
+      ],
+      ownLine: null,
+      hasDrawing: true,
+    }),
+    joanna: composeSantaLetter({
+      childId: "joanna",
+      childName: "Joanna",
+      age: 1,
+      sections: [
+        section("joanna", "love", ["bath-toys", "books", "soft-toys"], "books"),
+        section("joanna", "characters", ["bluey", "peppa", "night-garden"], null),
+        section("joanna", "cosy", ["soft-toy"], null),
+      ],
+      ownLine: "Peekaboo",
+      hasDrawing: true,
+    }),
+  };
+  assert.equal(letters.hannah, HANNAH_LETTER);
+  assert.equal(letters.lydia, LYDIA_LETTER);
+  assert.equal(letters.zoe, ZOE_LETTER);
+  assert.equal(letters.ethan, ETHAN_LETTER);
+  assert.equal(letters.joanna, JOANNA_LETTER);
+  for (const text of Object.values(letters)) {
+    assertGentle(text);
+    assert.match(text, /^Dear Santa,\n\nMy name is /);
+    assert.match(text, /safe journey on Christmas Eve/);
+    assert.match(text, /kind and helpful/);
+    const blocks = santaLetterBlocks(text);
+    assert.equal(blocks[0]?.kind, "salutation");
+    assert.equal(blocks.at(-1)?.kind, "signoff");
+    assert.match(blocks.at(-1)?.text ?? "", /^Love from /);
+    assert.doesNotMatch(text, /<li>|^\s*[-*•]/m);
+  }
+  assert.doesNotMatch(letters.hannah, /I've drawn you a picture too!/);
+  assert.match(letters.lydia, /I've drawn you a picture too!/);
+  assert.doesNotMatch(letters.ethan, /wanted to tell you/);
+  assert.doesNotMatch(letters.lydia, /quietly indoors|Harry Potter/);
+  assert.match(letters.joanna, /A grown-up helped me write this because I'm still little/);
+  assert.doesNotMatch(letters.hannah, /A grown-up helped me write this/);
+  assert.doesNotMatch(letters.zoe, /A grown-up helped me write this/);
+  const lydiaStarts = santaLetterBlocks(letters.lydia).filter((block) => block.kind === "body").map((block) => block.text.slice(0, 12));
+  assert.ok(new Set(lydiaStarts).size >= 5, lydiaStarts.join(" | "));
+});
+
+test("a child with no date of birth omits their age", async () => {
+  const db = memoryDb();
+  const sent = await postSantaLetter(db, "pip", "Pip", JSON.stringify({
+    answers: { love: { picks: ["cars"], favourite: "cars" } },
+  }), null, OPEN);
+  const text = (sent.body as { letter: { letterText: string } }).letter.letterText;
+  assert.match(text, /My name is Pip\./);
+  assert.doesNotMatch(text, /I'm \d|I'm not 1 yet/);
+  assert.match(text, /I love cars and trains\./);
+  assertGentle(text);
 });
 
 test("the santa pages and styles stay on this site", async () => {

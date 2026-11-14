@@ -106,6 +106,8 @@ export interface SantaOption {
   id: string;
   label: string;
   emoji: string;
+  /** Child-like words for this choice, from the shared catalog. */
+  phrase?: string;
 }
 
 export interface SantaQuestion {
@@ -126,6 +128,8 @@ export interface SantaLetterRecord {
 export interface SantaFormState {
   open: boolean;
   child?: { id: string; name: string };
+  /** Whole years from date of birth, or null when core.people has none. */
+  age?: number | null;
   style?: "reading" | "tiles";
   maxPicks?: number;
   questions?: SantaQuestion[];

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { santaLetterBlocks } from "../../../packages/local/src/santa-catalog";
 import { apiConfig } from "./config";
 
 interface SantaPick {
@@ -110,7 +111,24 @@ export function SantaLettersPanel({ accessToken }: { accessToken: string }) {
               ) : (
                 <p className="m-0 text-sm text-muted">No drawing</p>
               )}
-              <pre className="m-0 whitespace-pre-wrap text-sm font-sans bg-surface-solid border border-border rounded-lg p-3">{child.latest.letterText}</pre>
+              <div className="santa-admin-letter" aria-label={`${child.name}'s letter`}>
+                {santaLetterBlocks(child.latest.letterText).map((block, index) => {
+                  if (block.kind === "signoff") {
+                    return (
+                      <p className="santa-admin-signoff" key={index}>
+                        {block.text.split("\n").map((line, lineIndex) => (
+                          <span key={lineIndex}>{line}</span>
+                        ))}
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className={block.kind === "salutation" ? "santa-admin-salutation" : undefined} key={index}>
+                      {block.text}
+                    </p>
+                  );
+                })}
+              </div>
             </>
           )}
         </article>
