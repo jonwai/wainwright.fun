@@ -917,6 +917,7 @@ test("a letter to Santa stays hidden until 15 Nov 2026 London, then the device's
   const form = await open("/kid/santa", hannahIp);
   assert.equal(form.json.open, true);
   assert.equal(form.json.child.id, "hannah");
+  assert.equal(form.json.age, 9);
   assert.equal(form.json.style, "reading");
   const hannahChoices = form.json.questions.flatMap((question: { options: { id: string }[] }) => question.options.map((option) => option.id));
   assert.equal(hannahChoices.includes("harry-potter"), true);
@@ -924,6 +925,7 @@ test("a letter to Santa stays hidden until 15 Nov 2026 London, then the device's
 
   const zoeOnHannahHost = await call("hannah.wainwright.fun", "/kid/santa", ZOE, { port: openPort });
   assert.equal(zoeOnHannahHost.json.child.id, "zoe");
+  assert.equal(zoeOnHannahHost.json.age, 6);
   assert.equal(zoeOnHannahHost.json.style, "tiles");
   const zoeChoices = zoeOnHannahHost.json.questions.flatMap((question: { options: { id: string }[] }) => question.options.map((option) => option.id));
   assert.equal(zoeChoices.includes("science"), true);
@@ -945,10 +947,12 @@ test("a letter to Santa stays hidden until 15 Nov 2026 London, then the device's
     },
   });
   assert.equal(first.status, 200);
-  assert.match(first.json.letter.letterText, /Here are some things I love/);
-  assert.match(first.json.letter.letterText, /Music \(my favourite\)/);
-  assert.match(first.json.letter.letterText, /Love, Hannah/);
-  assert.doesNotMatch(first.json.letter.letterText, /I will get|I'll get|you'll get/i);
+  assert.match(first.json.letter.letterText, /My name is Hannah and I'm 9/);
+  assert.match(first.json.letter.letterText, /but music is the best of all/);
+  assert.match(first.json.letter.letterText, /I've drawn you a picture too!/);
+  assert.match(first.json.letter.letterText, /P\.S\. The snow is sparkly\./);
+  assert.match(first.json.letter.letterText, /Love from Hannah/);
+  assert.doesNotMatch(first.json.letter.letterText, /\bI want\b|\bbring me\b|\bplease get\b|\bI will get\b|\bI'll get\b|\byou'll get\b/i);
   assert.match(first.json.letter.drawingPng, /^data:image\/png;base64,/);
   assert.equal(first.json.letter.clientIp, undefined);
 
@@ -986,7 +990,10 @@ test("a letter to Santa stays hidden until 15 Nov 2026 London, then the device's
     body: { answers: { love: { picks: ["bath-toys", "books"], favourite: "books" }, characters: { picks: ["bluey"] } } },
   });
   assert.equal(joannaOk.status, 200);
-  assert.match(joannaOk.json.letter.letterText, /Love, Joanna/);
+  assert.match(joannaOk.json.letter.letterText, /My name is Joanna and I'm 1/);
+  assert.match(joannaOk.json.letter.letterText, /A grown-up helped me write this because I'm still little/);
+  assert.match(joannaOk.json.letter.letterText, /splashing about at bath time/);
+  assert.match(joannaOk.json.letter.letterText, /Love from Joanna/);
   const ethan = await open("/kid/santa", MAC, {
     method: "POST",
     headers: { cookie: "tickets_act_as=ethan" },

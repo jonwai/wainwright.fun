@@ -3,6 +3,7 @@
  * the same way /kid/internet works. Submissions before SANTA_OPENS_EUROPE_LONDON are refused.
  * Every send is a new row; the launcher and the admin show the latest.
  */
+import { calculateAge } from "../../shared/scripts/birthday.js";
 import { HttpError, type Result } from "./app.js";
 import type { Queryable } from "./pg-ddb.js";
 import {
@@ -82,11 +83,28 @@ function forChild(letter: StoredSantaLetter) {
   return rest;
 }
 
-function publicForm(childId: string, childName: string, latest: StoredSantaLetter | null) {
+/** Whole years from core.people.date_of_birth, or null when the date is missing. */
+export async function childAgeYears(db: Queryable, childId: string, now: Date): Promise<number | null> {
+  const { rows } = await db.query(
+    `-- santa-age
+     SELECT to_char(date_of_birth, 'YYYY-MM-DD') AS dob
+     FROM core.people
+     WHERE id = $1`,
+    [childId],
+  );
+  const dob = rows[0]?.dob;
+  if (typeof dob !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(dob)) return null;
+  const age = calculateAge(dob, now);
+  if (!Number.isInteger(age) || age < 0) return null;
+  return age;
+}
+
+function publicForm(childId: string, childName: string, age: number | null, latest: StoredSantaLetter | null) {
   const child = santaChild(childId);
   return {
     open: true as const,
     child: { id: childId, name: childName },
+    age,
     style: child.style,
     maxPicks: 3,
     questions: child.questions,
@@ -96,6 +114,7 @@ function publicForm(childId: string, childName: string, latest: StoredSantaLette
 
 export async function getSantaLetter(db: Queryable, childId: string, childName: string, now = new Date()): Promise<Result> {
   if (!santaIsOpen(now)) return { status: 200, body: { open: false } };
+  const age = await childAgeYears(db, childId, now);
   const { rows } = await db.query(
     `-- santa-latest
      SELECT id, child_id, submitted_at, answers, own_line, letter_text, drawing_png, host(client_ip) AS client_ip
@@ -105,15 +124,16 @@ export async function getSantaLetter(db: Queryable, childId: string, childName: 
      LIMIT 1`,
     [childId],
   );
-  return { status: 200, body: publicForm(childId, childName, rows[0] ? present(rows[0]) : null) };
+  return { status: 200, body: publicForm(childId, childName, age, rows[0] ? present(rows[0]) : null) };
 }
 
 export async function postSantaLetter(db: Queryable, childId: string, childName: string, rawBody: string, clientIp: string | null, now = new Date()): Promise<Result> {
   if (!santaIsOpen(now)) throw new HttpError(403, "Letters to Santa are not open yet");
   const input = rawBody.trim() ? JSON.parse(rawBody) : {};
-  const validated = validateSantaAnswers(childId, childName, input);
-  if ("error" in validated) throw new HttpError(400, validated.error);
   const drawing = decodeSantaDrawing(asRecordDrawing(input));
+  const age = await childAgeYears(db, childId, now);
+  const validated = validateSantaAnswers(childId, childName, input, { age, hasDrawing: drawing != null });
+  if ("error" in validated) throw new HttpError(400, validated.error);
   const { rows } = await db.query(
     `-- santa-insert
      INSERT INTO kids.santa_letters (child_id, answers, own_line, drawing_png, letter_text, client_ip)

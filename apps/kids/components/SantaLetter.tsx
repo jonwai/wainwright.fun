@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { fetchKidSanta, sendKidSanta, type SantaLetterRecord, type SantaQuestion } from "../lib/kidApi";
-import { composeSantaLetter, SANTA_MAX_DRAWING_BYTES, SANTA_MAX_OWN_LINE, SANTA_MAX_PICKS } from "../../../packages/local/src/santa-catalog";
+import { composeSantaLetter, santaLetterBlocks, SANTA_MAX_DRAWING_BYTES, SANTA_MAX_OWN_LINE, SANTA_MAX_PICKS } from "../../../packages/local/src/santa-catalog";
 
 interface Choice {
   picks: string[];
@@ -33,19 +33,56 @@ function choicesFromLetter(questions: SantaQuestion[], letter: SantaLetterRecord
   return choices;
 }
 
-function letterFromChoices(name: string, questions: SantaQuestion[], choices: Record<string, Choice>, ownLine: string): string {
+function letterFromChoices(
+  childId: string,
+  name: string,
+  age: number | null,
+  questions: SantaQuestion[],
+  choices: Record<string, Choice>,
+  ownLine: string,
+  hasDrawing: boolean,
+): string {
   const sections = questions.flatMap((question) => {
     const choice = choices[question.id];
     if (!choice || choice.picks.length === 0) return [];
     const picks = choice.picks.flatMap((id) => {
       const option = question.options.find((item) => item.id === id);
-      return option ? [{ id: option.id, label: option.label }] : [];
+      return option ? [{ id: option.id, phrase: option.phrase?.trim() || option.label, short: option.short?.trim() || option.label, plural: option.plural === true }] : [];
     });
     if (picks.length === 0) return [];
-    return [{ prompt: question.prompt, picks, favourite: choice.favourite }];
+    return [{ questionId: question.id, picks, favourite: choice.favourite }];
   });
   if (sections.length === 0) return "";
-  return composeSantaLetter(name, sections, ownLine.trim() || null);
+  return composeSantaLetter({
+    childId,
+    childName: name,
+    age,
+    sections,
+    ownLine: ownLine.trim() || null,
+    hasDrawing,
+  });
+}
+
+function LetterPaper({ text, drawing }: { text: string; drawing?: string | null }) {
+  const blocks = santaLetterBlocks(text);
+  return (
+    <div className="santa-paper">
+      {blocks.map((block, index) => {
+        if (block.kind === "salutation") return <p className="santa-salutation" key={index}>{block.text}</p>;
+        if (block.kind === "signoff") {
+          return (
+            <p className="santa-signoff" key={index}>
+              {block.text.split("\n").map((line, lineIndex) => (
+                <span key={lineIndex}>{line}</span>
+              ))}
+            </p>
+          );
+        }
+        return <p key={index}>{block.text}</p>;
+      })}
+      {drawing && <img src={drawing} alt="Drawing on the letter" />}
+    </div>
+  );
 }
 
 /**
@@ -56,7 +93,9 @@ export function SantaLetter() {
   const [hidden, setHidden] = useState(false);
   const [questions, setQuestions] = useState<SantaQuestion[] | null>(null);
   const [style, setStyle] = useState<"reading" | "tiles">("tiles");
+  const [childId, setChildId] = useState("");
   const [childName, setChildName] = useState("");
+  const [age, setAge] = useState<number | null>(null);
   const [choices, setChoices] = useState<Record<string, Choice>>({});
   const [ownLine, setOwnLine] = useState("");
   const [drawing, setDrawing] = useState<string | null>(null);
@@ -78,7 +117,9 @@ export function SantaLetter() {
         }
         setQuestions(state.questions);
         setStyle(state.style === "reading" ? "reading" : "tiles");
+        setChildId(state.child?.id ?? "");
         setChildName(state.child?.name ?? "");
+        setAge(typeof state.age === "number" && Number.isInteger(state.age) && state.age >= 0 ? state.age : null);
         if (state.latest) {
           setSent(state.latest);
           setChoices(choicesFromLetter(state.questions, state.latest));
@@ -101,7 +142,7 @@ export function SantaLetter() {
 
   if (hidden || !questions) return null;
 
-  const preview = letterFromChoices(childName, questions, choices, ownLine);
+  const preview = letterFromChoices(childId, childName, age, questions, choices, ownLine, drawing != null);
   const showForm = editing || !sent;
 
   function toggle(questionId: string, optionId: string) {
@@ -233,8 +274,8 @@ export function SantaLetter() {
               onChange={setDrawing}
             />
             {preview && (
-              <div className="santa-paper" aria-live="polite">
-                <pre>{preview}</pre>
+              <div aria-live="polite">
+                <LetterPaper text={preview} />
               </div>
             )}
             {problem && <p className="santa-problem" role="alert">{problem}</p>}
@@ -252,12 +293,7 @@ export function SantaLetter() {
         ) : (
           <div className="santa-sent">
             <p className="santa-on-the-way" role="status">Your letter is on its way to the North Pole!</p>
-            {sent && (
-              <div className="santa-paper">
-                <pre>{sent.letterText}</pre>
-                {sent.drawingPng && <img src={sent.drawingPng} alt="Drawing on the letter" />}
-              </div>
-            )}
+            {sent && <LetterPaper text={sent.letterText} drawing={sent.drawingPng} />}
             <button type="button" className="santa-secondary" onClick={edit}>
               Edit and send again
             </button>
