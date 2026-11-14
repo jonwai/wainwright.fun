@@ -10,9 +10,9 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { internetView, formatDuration } from "../../../apps/kids/lib/internet.ts";
+import { breakSecondsRemaining, formatDuration, internetCountdownFinished, internetProblemMessage, internetView } from "../../../apps/kids/lib/internet.ts";
 import { INTERNET_CONTROLS_UNAVAILABLE, bearerToken, haClientFromEnv, readTokenFile, tokensMatch } from "../src/ha.ts";
-import { buildHomeworkDomains, handleKidInternet, handleKidInternetMode, internetModeCommand, websiteHostname } from "../src/homework.ts";
+import { buildHomeworkDomains, endBreakCommand, handleEndBreak, handleKidInternet, handleKidInternetMode, internetModeCommand, websiteHostname } from "../src/homework.ts";
 
 test("bearer tokens match in constant time and a missing token never matches", () => {
   assert.equal(tokensMatch("secret", "secret"), true);
@@ -63,6 +63,12 @@ test("internet mode sends the database allowance, not the body's", () => {
   assert.deepEqual(internetModeCommand({ homework_declared: "skipped" }, 3600), { ok: true, body: { homework_declared: "skipped" } });
   assert.equal(internetModeCommand({ mode: "homework", homework_declared: "skipped" }, 3600).ok, false);
   assert.equal(internetModeCommand({ child_id: "hannah" }, 3600).ok, false);
+  assert.equal(internetModeCommand({ end_break: true }, 3600).ok, false);
+  assert.equal(internetModeCommand({ end_break: true, mode: "homework" }, 3600).ok, false);
+  assert.equal(internetModeCommand({ end_break: true, homework_declared: "skipped" }, 3600).ok, false);
+  const override = endBreakCommand();
+  assert.deepEqual(override, { end_break: true });
+  assert.deepEqual(Object.keys(override), ["end_break"]);
 });
 
 test("the kid route hides Joanna and passes a 409 reason through", async () => {
@@ -115,6 +121,99 @@ test("the kid route hides Joanna and passes a 409 reason through", async () => {
   assert.equal((await handleKidInternet(db, down, "ethan")).body.error, INTERNET_CONTROLS_UNAVAILABLE);
   assert.equal((await handleKidInternetMode(db, down, "ethan", { mode: "off" })).status, 503);
   assert.equal((await handleKidInternetMode(db, down, "hannah", { mode: "sideways" })).status, 400);
+  assert.equal((await handleKidInternetMode(db, down, "hannah", { end_break: true, mode: "off" })).status, 400);
+
+  const duringBreak = {
+    async getKid() {
+      return { status: 200, body: {} };
+    },
+    async setMode() {
+      return { status: 409, body: { error: "Homework mode is paused", reason: "internet_break" } };
+    },
+  };
+  const paused = await handleKidInternetMode(db, duringBreak, "hannah", { mode: "homework" });
+  assert.equal(paused.status, 409);
+  assert.equal(paused.body.reason, "internet_break");
+  assert.equal(internetProblemMessage("internet_break"), "You're on an internet break. Homework mode is back when the break ends.");
+  assert.equal(internetProblemMessage("internet controls unavailable"), "Internet controls aren't available right now.");
+});
+
+test("GET /kid/internet passes break fields through, and end break sends only end_break", async () => {
+  const db = { async query() { return { rows: [{ allowance_seconds: 1800 }] }; } };
+  const haState = {
+    child_id: "ethan",
+    mode: "off",
+    on_break: true,
+    break_ends_at: "2026-11-14T12:10:00.000Z",
+    break_seconds_left: 600,
+    homework_available: false,
+    internet_available: false,
+    allowance_seconds: 1,
+  };
+  const reading = {
+    async getKid() {
+      return { status: 200, body: haState };
+    },
+    async setMode() {
+      throw new Error("GET must not change the mode");
+    },
+  };
+  const got = await handleKidInternet(db, reading, "ethan");
+  assert.equal(got.status, 200);
+  assert.equal(got.body.on_break, true);
+  assert.equal(got.body.break_ends_at, "2026-11-14T12:10:00.000Z");
+  assert.equal(got.body.break_seconds_left, 600);
+  assert.equal(got.body.homework_available, false);
+  assert.equal(got.body.internet_available, false);
+  assert.equal(got.body.allowance_seconds, 1800);
+  assert.equal(got.body.available, true);
+
+  let sent: unknown = null;
+  let sentChild = "";
+  let calls = 0;
+  const ending = {
+    async getKid() {
+      throw new Error("end break does not read first");
+    },
+    async setMode(childId: string, body: Record<string, unknown>) {
+      calls += 1;
+      sentChild = childId;
+      sent = body;
+      return { status: 200, body: { ...haState, child_id: childId, on_break: false, break_ends_at: null, break_seconds_left: 0, homework_available: true } };
+    },
+  };
+  const ended = await handleEndBreak(db, ending, "lydia");
+  assert.equal(calls, 1);
+  assert.equal(sentChild, "lydia");
+  assert.deepEqual(sent, { end_break: true });
+  assert.deepEqual(Object.keys(sent as object), ["end_break"]);
+  assert.equal(ended.status, 200);
+  assert.equal(ended.body.on_break, false);
+  assert.equal(ended.body.homework_available, true);
+  assert.equal(ended.body.allowance_seconds, 1800);
+
+  assert.deepEqual(await handleEndBreak(db, ending, "joanna"), { status: 404, body: { available: false } });
+  assert.equal(calls, 1, "Joanna is not sent to Home Assistant");
+
+  const down = {
+    async getKid() {
+      return { status: 503, unavailable: true, body: { error: INTERNET_CONTROLS_UNAVAILABLE } };
+    },
+    async setMode() {
+      return { status: 503, unavailable: true, body: { error: INTERNET_CONTROLS_UNAVAILABLE } };
+    },
+  };
+  assert.equal((await handleEndBreak(db, down, "zoe")).status, 503);
+  assert.equal((await handleEndBreak(db, down, "zoe")).body.error, INTERNET_CONTROLS_UNAVAILABLE);
+  const throwing = {
+    async getKid() {
+      return { status: 200, body: {} };
+    },
+    async setMode() {
+      throw new Error("connect ECONNREFUSED");
+    },
+  };
+  assert.equal((await handleEndBreak(db, throwing, "hannah")).status, 503);
 });
 
 test("the Home Assistant client returns 409 and survives a missing token or a dropped connection", async () => {
@@ -172,38 +271,52 @@ test("the Home Assistant client returns 409 and survives a missing token or a dr
   }
 });
 
-test("the launcher shows homework first, then internet, then that time is over", () => {
-  const now = Date.parse("2026-11-12T12:00:00.000Z");
+test("the launcher follows homework_available, internet_available, and the break countdown", () => {
+  const now = Date.parse("2026-11-14T12:00:00.000Z");
   const fresh = {
     available: true,
-    mode: "off",
+    mode: "off" as const,
     homework_declared: "none",
     internet_used_today: false,
+    internet_available: false,
+    homework_available: true,
+    on_break: false,
     allowance_seconds: 3600,
     seconds_left: 3600,
   };
   const start = internetView(fresh, now, now);
-  assert.equal(start.showHomeworkChoices, true);
+  assert.equal(start.showHomeworkButton, true);
+  assert.equal(start.showSkipHomework, true);
   assert.equal(start.showInternetButton, false);
+  assert.equal(start.onBreak, false);
   assert.equal(start.minutes, 60);
 
-  const skipped = internetView({ ...fresh, homework_declared: "skipped" }, now, now);
-  assert.equal(skipped.showHomeworkChoices, false);
+  const skipped = internetView({ ...fresh, homework_declared: "skipped", homework_available: false, internet_available: true }, now, now);
+  assert.equal(skipped.showHomeworkButton, false);
+  assert.equal(skipped.showSkipHomework, false);
   assert.equal(skipped.showInternetButton, true);
 
-  const homework = internetView({ ...fresh, mode: "homework", homework_declared: "homework", seconds_left: 90 }, now, now - 30_000);
+  const homework = internetView(
+    { ...fresh, mode: "homework", homework_declared: "homework", homework_available: false, internet_available: true, seconds_left: 90 },
+    now,
+    now - 30_000,
+  );
   assert.equal(homework.modeLabel, "Homework mode");
   assert.equal(homework.countdownSeconds, 60);
+  assert.equal(homework.showHomeworkButton, false);
   assert.equal(homework.showInternetButton, true);
   assert.equal(formatDuration(homework.countdownSeconds ?? 0), "1 minute");
+  assert.equal(internetCountdownFinished(homework), false);
 
   const running = internetView(
     {
       ...fresh,
       mode: "internet",
       homework_declared: "homework",
+      homework_available: false,
+      internet_available: false,
       internet_used_today: true,
-      internet_ends_at: "2026-11-12T12:10:00.000Z",
+      internet_ends_at: "2026-11-14T12:10:00.000Z",
       seconds_left: 9999,
     },
     now,
@@ -211,12 +324,69 @@ test("the launcher shows homework first, then internet, then that time is over",
   );
   assert.equal(running.modeLabel, "Internet mode");
   assert.equal(running.countdownSeconds, 600);
-  assert.equal(running.showHomeworkChoices, false);
+  assert.equal(running.showHomeworkButton, false);
+  assert.equal(running.showInternetButton, false);
   assert.equal(running.timeOver, false);
+  assert.equal(internetCountdownFinished({ ...running, countdownSeconds: 0 }), true);
+  const justEnded = internetView(
+    { ...fresh, mode: "internet", internet_used_today: true, internet_available: false, homework_available: false, seconds_left: 0 },
+    now,
+    now,
+  );
+  assert.equal(justEnded.modeLabel, "Internet mode");
+  assert.equal(justEnded.countdownSeconds, 0);
+  assert.equal(justEnded.timeOver, false);
+  assert.equal(justEnded.onBreak, false);
+  assert.equal(internetCountdownFinished(justEnded), true);
 
-  const over = internetView({ ...fresh, internet_used_today: true, mode: "off", seconds_left: 0 }, now, now);
-  assert.equal(over.showHomeworkChoices, false);
-  assert.equal(over.showInternetButton, false);
-  assert.equal(over.timeOver, true);
-  assert.equal(internetView({ available: false }, now, now).hidden, true);
+  const onBreak = internetView(
+    {
+      ...fresh,
+      internet_used_today: true,
+      homework_available: false,
+      internet_available: false,
+      on_break: true,
+      break_ends_at: "2026-11-14T12:10:00.000Z",
+      break_seconds_left: 9999,
+    },
+    now,
+    now,
+  );
+  assert.equal(onBreak.onBreak, true);
+  assert.equal(onBreak.breakSeconds, 600);
+  assert.equal(onBreak.showHomeworkButton, false);
+  assert.equal(internetView({ ...fresh, internet_used_today: true, on_break: true, homework_available: true, break_ends_at: "2026-11-14T12:10:00.000Z" }, now, now).showHomeworkButton, true);
+  assert.equal(onBreak.timeOver, false);
+  assert.equal(formatDuration(onBreak.breakSeconds ?? 0), "10 minutes");
+  assert.equal(internetCountdownFinished(onBreak), false);
+  assert.equal(internetCountdownFinished({ ...onBreak, breakSeconds: 0 }), true);
+  const later = Date.parse("2026-11-14T12:01:00.000Z");
+  assert.equal(
+    breakSecondsRemaining(
+      { on_break: true, break_ends_at: null, break_seconds_left: 90 },
+      later,
+      now,
+    ),
+    30,
+  );
+  assert.equal(breakSecondsRemaining({ on_break: false, break_seconds_left: 90 }, later, now), null);
+
+  const after = internetView(
+    {
+      ...fresh,
+      internet_used_today: true,
+      homework_declared: "homework",
+      homework_available: true,
+      internet_available: false,
+      on_break: false,
+      mode: "off",
+    },
+    now,
+    now,
+  );
+  assert.equal(after.showHomeworkButton, true, "homework comes back after the break, even though internet was used");
+  assert.equal(after.showSkipHomework, false);
+  assert.equal(after.showInternetButton, false);
+  assert.equal(after.timeOver, true);
+  assert.equal(internetView({ available: false, homework_available: true }, now, now).hidden, true);
 });

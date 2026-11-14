@@ -108,6 +108,8 @@ const DOMAINS_TOKEN = "domains-test-token";
 let haTokenFile = "";
 let domainsTokenFile = "";
 let haDown = false;
+/** When set, the stand-in Home Assistant reports this break. A homework POST during it is a 409. */
+let haBreak: { on_break: boolean; break_ends_at: string | null; break_seconds_left: number; homework_available: boolean } | null = null;
 const haCalls: { method: string; path: string; body: unknown }[] = [];
 const haServer = createServer((req, res) => {
   if (haDown) {
@@ -141,22 +143,38 @@ const haServer = createServer((req, res) => {
       res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ error: "unknown child" }));
       return;
     }
-    const command = (body ?? {}) as { mode?: string; homework_declared?: string; allowance_seconds?: number };
+    const command = (body ?? {}) as { mode?: string; homework_declared?: string; allowance_seconds?: number; end_break?: boolean };
+    if (req.method === "POST" && command.end_break === true) {
+      const keys = Object.keys(command);
+      if (keys.length !== 1 || command.mode !== undefined || command.homework_declared !== undefined) {
+        res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "end_break must be the only key" }));
+        return;
+      }
+      haBreak = { on_break: false, break_ends_at: null, break_seconds_left: 0, homework_available: true };
+    }
     if (req.method === "POST" && command.mode === "off") {
       res.writeHead(409, { "content-type": "application/json" }).end(JSON.stringify({ reason: "Internet stays on until the timer ends" }));
+      return;
+    }
+    if (req.method === "POST" && command.mode === "homework" && haBreak?.on_break) {
+      res.writeHead(409, { "content-type": "application/json" }).end(JSON.stringify({ error: "Homework mode is paused", reason: "internet_break" }));
       return;
     }
     const next = {
       child_id: kid[1],
       date: "2026-11-12",
-      mode: command.mode ?? "off",
+      mode: command.end_break ? "off" : command.mode ?? "off",
       homework_declared: command.homework_declared === "skipped" ? "skipped" : command.mode === "homework" ? "homework" : "none",
-      internet_used_today: command.mode === "internet",
-      internet_available: true,
+      internet_used_today: command.mode === "internet" || Boolean(haBreak),
+      internet_available: !haBreak?.on_break && command.mode !== "internet",
       allowance_seconds: command.allowance_seconds ?? 999,
       seconds_left: command.mode === "internet" || command.mode === "homework" ? 1200 : 3600,
       internet_ends_at: command.mode === "internet" ? "2026-11-12T13:00:00.000Z" : null,
       resets_at: "2026-11-13T00:00:00.000Z",
+      on_break: haBreak?.on_break ?? false,
+      break_ends_at: haBreak?.break_ends_at ?? null,
+      break_seconds_left: haBreak?.break_seconds_left ?? 0,
+      homework_available: haBreak ? haBreak.homework_available : command.mode !== "homework" && command.mode !== "internet",
     };
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(next));
   });
@@ -808,5 +826,71 @@ test("a child's internet mode follows the device, and Home Assistant failures st
     assert.equal((await apex("/kid/config", ZOE)).status, 200);
   } finally {
     haDown = false;
+  }
+});
+
+test("a parent can end a break, and the kid page is told the break fields", { skip: !url }, async () => {
+  haCalls.length = 0;
+  haDown = false;
+  haBreak = {
+    on_break: true,
+    break_ends_at: "2026-11-14T12:10:00.000Z",
+    break_seconds_left: 600,
+    homework_available: false,
+  };
+  try {
+    const zoe = await apex("/kid/internet", ZOE);
+    assert.equal(zoe.status, 200);
+    assert.equal(zoe.json.on_break, true);
+    assert.equal(zoe.json.break_ends_at, "2026-11-14T12:10:00.000Z");
+    assert.equal(zoe.json.break_seconds_left, 600);
+    assert.equal(zoe.json.homework_available, false);
+    assert.equal(zoe.json.allowance_seconds, 3600);
+
+    const paused = await apex("/kid/internet/mode", ZOE, { method: "POST", body: { mode: "homework" } });
+    assert.equal(paused.status, 409);
+    assert.equal(paused.json.reason, "internet_break");
+    assert.equal(paused.json.error, "Homework mode is paused");
+
+    const kidAttempt = await apex("/kid/internet/mode", ZOE, { method: "POST", body: { end_break: true } });
+    assert.equal(kidAttempt.status, 400);
+
+    const stranger = await admin("/api/children/zoe/end-break", ZOE, { method: "POST", body: {} });
+    assert.equal(stranger.status, 403);
+    const unknown = await admin("/api/children/zoe/end-break", null, { method: "POST", body: {} });
+    assert.equal(unknown.status, 403);
+
+    const before = haCalls.length;
+    const joanna = await admin("/api/children/joanna/end-break", MAC, { method: "POST", body: { end_break: true, mode: "off" } });
+    assert.equal(joanna.status, 404);
+    assert.equal(haCalls.length, before, "Joanna is not sent to Home Assistant");
+
+    const ended = await admin("/api/children/zoe/end-break", MAC, { method: "POST", body: { mode: "homework", homework_declared: "skipped", end_break: true } });
+    assert.equal(ended.status, 200);
+    assert.equal(ended.json.on_break, false);
+    assert.equal(ended.json.homework_available, true);
+    assert.deepEqual(haCalls.at(-1)?.body, { end_break: true });
+    assert.deepEqual(Object.keys(haCalls.at(-1)?.body as object), ["end_break"]);
+    assert.equal(haCalls.at(-1)?.path, "/api/wainwright_fun/kids/zoe/mode");
+
+    const again = await admin("/api/children/hannah/end-break", MAC, { method: "POST" });
+    assert.equal(again.status, 200);
+    assert.deepEqual(haCalls.at(-1)?.body, { end_break: true });
+
+    const status = await admin("/api/children/lydia/internet", MAC);
+    assert.equal(status.status, 200);
+    assert.equal(status.json.child_id, "lydia");
+    assert.equal(status.json.on_break, false);
+    assert.equal((await admin("/api/children/joanna/internet", MAC)).status, 404);
+    assert.equal((await admin("/api/children/zoe/end-break", MAC)).status, 405);
+
+    haDown = true;
+    const down = await admin("/api/children/ethan/end-break", MAC, { method: "POST", body: {} });
+    assert.equal(down.status, 503);
+    assert.equal(down.json.error, "internet controls unavailable");
+    assert.equal((await admin("/api/children", MAC)).status, 200);
+  } finally {
+    haDown = false;
+    haBreak = null;
   }
 });

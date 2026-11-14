@@ -15,6 +15,7 @@
  *   admin.wainwright.fun        the iPad config admin (children, devices, apps, websites, themes,
  *                               restrictions, term dates). Parents' devices only; never a child's
  *                               device. Devices are managed here (core.devices), not in Snacks.
+ *                               POST /api/children/{child}/end-break ends that child's internet break.
  *   www.wainwright.fun          301 to wainwright.fun (as the hosted CloudFront function).
  *   anything else               tickets (tickets.wainwright.fun, health checks).
  *
@@ -29,7 +30,7 @@ import type pg from "pg";
 import { buildRootConfig, type DbApp, type DbChild, type DbRestriction, type DbTheme, type DbWebsite } from "../../shared/scripts/yaml-generator.js";
 import { HttpError, inTransaction, page, parse, readBody, sendResult, serveFile, type Result } from "./app.js";
 import { bearerToken, haClientFromEnv, readTokenFile, tokensMatch, type HaClient } from "./ha.js";
-import { handleKidInternet, handleKidInternetMode, loadHomeworkDomains } from "./homework.js";
+import { handleEndBreak, handleKidInternet, handleKidInternetMode, isInternetChild, loadHomeworkDomains } from "./homework.js";
 import { ACT_AS_HEADER, clientIp, loadDirectory, normaliseIp, NOT_SET_UP, NOT_SET_UP_HTML, readChoices, resolveViewer, type Viewer } from "./identity.js";
 import { ensureAppIcon, ensureWebsiteIcon, fetchMissingIcons, type IconSubject } from "./icons.js";
 import { isAvatar, loadResolved, loadRows, sha256, signProfile, SigningUnavailable, toKidPayload, unsignedProfile, type Signer } from "./kids.js";
@@ -367,6 +368,16 @@ export function createLocalSites(options: LocalSitesOptions) {
       if (childId && (action === "pair" || action === "preview")) {
         throw new HttpError(410, "Pairing and preview links are not used on the home network: open wainwright.fun on your device and pick the child");
       }
+      if (childId && action === "internet" && method === "GET") {
+        if (!isInternetChild(childId)) return { status: 404, body: { available: false } };
+        const ha = options.ha ?? haClientFromEnv();
+        return handleKidInternet(db, ha, childId);
+      }
+      if (childId && action === "end-break" && method === "POST") {
+        const ha = options.ha ?? haClientFromEnv();
+        return handleEndBreak(db, ha, childId);
+      }
+      if (childId && (action === "internet" || action === "end-break")) throw new HttpError(405, "Method not allowed");
       if (method === "PUT" && childId && !action) {
         const input = body();
         const item: Record<string, unknown> = {
