@@ -11,7 +11,9 @@ import { HttpError } from "../src/app.ts";
 import { getSantaLetter, listSantaLetters, postSantaLetter } from "../src/santa.ts";
 import {
   composeSantaLetter,
+  formatOwnLine,
   joinSantaPhrases,
+  lowercaseOwnLineStart,
   londonWallTimeToUtc,
   santaChild,
   santaIsOpen,
@@ -185,7 +187,7 @@ function section(childId: string, questionId: string, ids: string[], favourite: 
     picks: ids.map((id) => {
       const option = question.options.find((item) => item.id === id);
       assert.ok(option, `${childId} ${questionId} ${id}`);
-      return { id, phrase: option.phrase };
+      return { id, phrase: option.phrase, short: option.short, plural: option.plural === true };
     }),
   };
 }
@@ -217,9 +219,9 @@ test("three picks and one favourite are stored, a fourth pick or a second favour
   assert.equal(letter.clientIp, undefined);
   assert.equal(letter.ownLine, "The snow is sparkly");
   assert.match(letter.letterText, /My name is Hannah and I'm 9/);
-  assert.match(letter.letterText, /My very favourite is music and singing, because it makes me so happy/);
+  assert.match(letter.letterText, /but music is the best of all/);
   assert.match(letter.letterText, /anything to do with Harry Potter and Hogwarts/);
-  assert.match(letter.letterText, /I also wanted to tell you: The snow is sparkly\./);
+  assert.match(letter.letterText, /Merry Christmas!\n\nP\.S\. The snow is sparkly\./);
   assert.match(letter.letterText, /I've drawn you a picture too!/);
   assert.match(letter.letterText, /Love from Hannah\nMerry Christmas!/);
   assertGentle(letter.letterText);
@@ -272,7 +274,7 @@ test("three picks and one favourite are stored, a fourth pick or a second favour
   const joannaLetter = (joanna.body as { letter: { letterText: string } }).letter.letterText;
   assert.match(joannaLetter, /My name is Joanna and I'm 1/);
   assert.match(joannaLetter, /A grown-up helped me write this because I'm still little/);
-  assert.match(joannaLetter, /My favourite is looking at books!/);
+  assert.match(joannaLetter, /but books are the best!/);
   assert.match(joannaLetter, /Love from Joanna/);
   assertGentle(joannaLetter);
 
@@ -349,8 +351,7 @@ test("one, two and three picks join with British grammar", () => {
     ownLine: null,
     hasDrawing: false,
   });
-  assert.match(three, /I love playing outside, playing pretend and looking after baby dolls\./);
-  assert.match(three, /My favourite is looking after baby dolls\. It makes me so happy\./);
+  assert.match(three, /I love playing outside, playing pretend and looking after baby dolls, but baby dolls are the best\./);
   assert.doesNotMatch(three, /The things I love doing most/);
 });
 
@@ -382,7 +383,7 @@ test("empty questions, a missing age, an own line and a drawing are handled", ()
     hasDrawing: true,
   });
   assert.match(withNotes, /My name is Ethan and I'm not 1 yet\./);
-  assert.match(withNotes, /I also wanted to tell you: I like the snow!/);
+  assert.match(withNotes, /P\.S\. I like the snow!/);
   assert.match(withNotes, /I've drawn you a picture too!/);
   assert.doesNotMatch(withNotes, /A grown-up helped me write this/);
   assertGentle(withNotes);
@@ -396,8 +397,8 @@ test("empty questions, a missing age, an own line and a drawing are handled", ()
     hasDrawing: true,
   });
   assert.match(toddler, /A grown-up helped me write this because I'm still little\./);
-  assert.match(toddler, /I love splashing about at bath time\. It is my favourite!/);
-  assert.match(toddler, /I wanted to tell you: Peekaboo\./);
+  assert.match(toddler, /I love splashing about at bath time\. Bath time is my favourite!/);
+  assert.match(toddler, /P\.S\. Peekaboo!/);
   assert.match(toddler, /I've drawn you a picture too!/);
   assertGentle(toddler);
 });
@@ -410,7 +411,10 @@ test("every choice has a phrase, and none of them asks for a present", () => {
       for (const option of question.options) {
         assert.ok(option.phrase.trim().length > 0, `${childId} ${option.id}`);
         assert.equal(option.phrase, option.phrase.trim());
+        assert.ok(option.short.trim().length > 0, `${childId} ${option.id} short`);
+        assert.equal(option.short, option.short.trim());
         assertGentle(option.phrase);
+        assertGentle(option.short);
         phrases.set(`${question.id}:${option.id}`, option.phrase);
       }
       const ids = question.options.slice(0, 3).map((option) => option.id);
@@ -439,84 +443,82 @@ const HANNAH_LETTER = `Dear Santa,
 
 My name is Hannah and I'm 9. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
 
-The things I love doing most are science and finding out how things work, doing jigsaws and playing board games with my family. My very favourite is science and finding out how things work, because it makes me so happy.
+The things I love doing most are science and finding out how things work, doing jigsaws and playing board games with my family, but science is the best of all.
 
-What makes me happy is anything to do with Harry Potter and Hogwarts, building worlds in Minecraft and catching Pokémon. My very favourite is anything to do with Harry Potter and Hogwarts, because it makes me so happy.
+What makes me happy is anything to do with Harry Potter and Hogwarts, building worlds in Minecraft and catching Pokémon. Harry Potter is my very favourite thing of all.
 
-I love doing jigsaws.
-
-I have such a happy time trying a little science experiment and building with LEGO.
+I have such a happy time trying a little science experiment and building with LEGO. Jigsaws are a treat as well.
 
 I like to play quietly indoors and in a den or a tunnel.
-
-I also wanted to tell you: The snow is sparkly.
 
 Thank you, Santa, for reading my letter. I hope you have a safe journey on Christmas Eve. I have tried to be kind and helpful this year.
 
 Love from Hannah
-Merry Christmas!`;
+Merry Christmas!
+
+P.S. The snow is sparkly.`;
 
 const LYDIA_LETTER = `Dear Santa,
 
 My name is Lydia and I'm 7. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
 
-The things I love doing most are building things, especially when I can make something really tall, arts and crafts with lots of colour, and music and singing. My very favourite is building things, especially when I can make something really tall, because it makes me so happy.
+The things I love doing most are building things, especially when I can make something really tall, arts and crafts with lots of colour, and music and singing, but building is the best of all.
 
 What makes me happy is the Frozen stories with Elsa and Anna, Barbie dolls and unicorns with sparkly manes.
 
 I love doing jigsaws and playing board games with my family.
 
-I have such a happy time making beads, jewellery and nail art, and painting and colouring. My very favourite is making beads, jewellery and nail art, because it makes me so happy.
+I have such a happy time making beads, jewellery and nail art, and painting and colouring. Making jewellery is my very favourite thing of all.
 
 It is fun to pretend, like running a little shop and having a tea party in the kitchen.
 
 For a cosy moment, I love a story book to snuggle up with.
-
-I also wanted to tell you: I have been helping Mum with the little ones.
 
 I've drawn you a picture too!
 
 Thank you, Santa, for reading my letter. I hope you have a safe journey on Christmas Eve. I have tried to be kind and helpful this year.
 
 Love from Lydia
-Merry Christmas!`;
+Merry Christmas!
+
+P.S. I have been helping Mum with the little ones.`;
 
 const ZOE_LETTER = `Dear Santa,
 
 My name is Zoe and I'm 6. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
 
-I love playing outside, playing pretend and looking after baby dolls. My favourite is playing outside. It makes me so happy.
+I love playing outside, playing pretend and looking after baby dolls, but outside is the best.
 
-I smile about Bluey and Frozen.
+It makes me smile to think about Bluey and Frozen.
 
-I like playing board games with my family.
+A good game for me is playing board games with my family.
 
-Making things is fun, like squishing Play-Doh or slime and painting and colouring. My favourite is squishing Play-Doh or slime. It makes me so happy.
+Making things is fun, like squishing Play-Doh or slime and painting and colouring. Play-Doh is my favourite.
 
 I play outside in the fresh air and in the bath with lots of splashing.
 
 At bedtime I love a soft toy to cuddle.
-
-I also wanted to tell you: I like jumping in puddles.
 
 I've drawn you a picture too!
 
 Thank you, Santa. Have a safe journey on Christmas Eve. I have tried to be kind and helpful.
 
 Love from Zoe
-Merry Christmas!`;
+Merry Christmas!
+
+P.S. I like jumping in puddles.`;
 
 const ETHAN_LETTER = `Dear Santa,
 
 My name is Ethan and I'm 4. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
 
-I love cars and trains, building things, especially when I can make something really tall, and playing outside. My favourite is cars and trains. It makes me so happy.
+I love cars and trains, building things, especially when I can make something really tall, and playing outside, but cars and trains are the best.
 
-I smile about dinosaurs, Thomas the Tank Engine and PAW Patrol.
+It makes me smile to think about dinosaurs, Thomas the Tank Engine and PAW Patrol.
 
 Making things is fun, like building with LEGO.
 
-I like to pretend, like being a racing driver or a train driver and being a builder. My favourite is being a racing driver or a train driver. It makes me so happy.
+Pretending is fun, like being a racing driver or a train driver and being a builder. Racing is my favourite.
 
 I play outside in the fresh air.
 
@@ -531,20 +533,20 @@ const JOANNA_LETTER = `Dear Santa,
 
 My name is Joanna and I'm 1. A grown-up helped me write this because I'm still little. I hope you and Mrs Claus and all the reindeer are keeping warm at the North Pole!
 
-I love splashing about at bath time, looking at books and cuddling my soft toys. My favourite is looking at books! It makes me so happy.
+I love splashing about at bath time, looking at books and cuddling my soft toys, but books are the best!
 
 I like Bluey, Peppa and In the Night Garden.
 
 At bedtime I love a soft toy to cuddle.
-
-I wanted to tell you: Peekaboo.
 
 I've drawn you a picture too!
 
 Thank you, Santa. Have a safe journey on Christmas Eve. I try to be kind and helpful.
 
 Love from Joanna
-Merry Christmas!`;
+Merry Christmas!
+
+P.S. Peekaboo!`;
 
 test("a sample letter for each child", () => {
   const letters = {
@@ -631,10 +633,16 @@ test("a sample letter for each child", () => {
     assert.match(text, /kind and helpful/);
     const blocks = santaLetterBlocks(text);
     assert.equal(blocks[0]?.kind, "salutation");
-    assert.equal(blocks.at(-1)?.kind, "signoff");
-    assert.match(blocks.at(-1)?.text ?? "", /^Love from /);
+    const signoff = blocks.filter((block) => block.kind === "signoff");
+    assert.equal(signoff.length, 1);
+    assert.match(signoff[0]?.text ?? "", /^Love from /);
+    if (text.includes("\n\nP.S. ")) assert.match(blocks.at(-1)?.text ?? "", /^P\.S\. /);
+    else assert.equal(blocks.at(-1)?.kind, "signoff");
+    assert.doesNotMatch(text, /because it makes me so happy/);
     assert.doesNotMatch(text, /<li>|^\s*[-*•]/m);
   }
+  assert.doesNotMatch(letters.hannah, /I love doing jigsaws\./);
+  assert.equal(letters.lydia.split("especially when I can make something really tall").length, 2);
   assert.doesNotMatch(letters.hannah, /I've drawn you a picture too!/);
   assert.match(letters.lydia, /I've drawn you a picture too!/);
   assert.doesNotMatch(letters.ethan, /wanted to tell you/);
@@ -654,8 +662,30 @@ test("a child with no date of birth omits their age", async () => {
   const text = (sent.body as { letter: { letterText: string } }).letter.letterText;
   assert.match(text, /My name is Pip\./);
   assert.doesNotMatch(text, /I'm \d|I'm not 1 yet/);
-  assert.match(text, /I love cars and trains\./);
+  assert.match(text, /Cars and trains are my favourite\./);
+  assert.doesNotMatch(text, /I love cars and trains/);
   assertGentle(text);
+});
+
+test("a P.S. keeps names and I, and only lowercases an ordinary first word", () => {
+  assert.equal(formatOwnLine("The snow is sparkly"), "The snow is sparkly.");
+  assert.equal(formatOwnLine("the snow is sparkly"), "The snow is sparkly.");
+  assert.equal(formatOwnLine("i like the snow"), "I like the snow.");
+  assert.equal(formatOwnLine("Peekaboo"), "Peekaboo!");
+  assert.equal(formatOwnLine("I have been helping Mum with the little ones"), "I have been helping Mum with the little ones.");
+  assert.equal(formatOwnLine("Dad is funny"), "Dad is funny.");
+  assert.equal(formatOwnLine("Santa is kind"), "Santa is kind.");
+  assert.equal(formatOwnLine("Christmas is soon"), "Christmas is soon.");
+  assert.equal(formatOwnLine("Hannah says hello"), "Hannah says hello.");
+  assert.equal(lowercaseOwnLineStart("The snow is sparkly"), "the snow is sparkly");
+  assert.equal(lowercaseOwnLineStart("I like the snow"), "I like the snow");
+  assert.equal(lowercaseOwnLineStart("Mum helped"), "Mum helped");
+  assert.equal(lowercaseOwnLineStart("Santa is kind"), "Santa is kind");
+  assert.equal(lowercaseOwnLineStart("Christmas is soon"), "Christmas is soon");
+  assert.equal(lowercaseOwnLineStart("Zoe laughed"), "Zoe laughed");
+  assert.equal(lowercaseOwnLineStart("Ethan ran"), "Ethan ran");
+  assert.equal(lowercaseOwnLineStart("Joanna waved"), "Joanna waved");
+  assert.equal(lowercaseOwnLineStart("Lydia sang"), "Lydia sang");
 });
 
 test("the santa pages and styles stay on this site", async () => {

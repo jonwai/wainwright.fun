@@ -8,9 +8,9 @@
  * Science (the activity and the science kit) is Zoe, Lydia and Hannah.
  * Harry Potter is Hannah's character list only. Lydia does not get it.
  *
- * Each option has a `phrase`: the child-like words for that choice. The letter joins them
- * ("A, B and C") into one sentence per question. Keep a phrase as a fragment, not a request,
- * so it can sit after "I love" without asking Santa to bring anything.
+ * Each option has a `phrase` (the child-like words joined as "A, B and C") and a `short`
+ * name for the favourite line ("building", "Harry Potter"). A phrase is a fragment, not a
+ * request, so it can sit after "I love" without asking Santa to bring anything.
  *
  * Letters open at SANTA_OPENS_EUROPE_LONDON (Europe/London wall time). That constant is the only start.
  * `composeSantaLetter` is the only letter. The on-screen preview and `letter_text` both call it.
@@ -35,6 +35,10 @@ export interface SantaOption {
   emoji: string;
   /** Words for the letter. A fragment that can be joined with other picks. */
   phrase: string;
+  /** Short name used when this choice is the starred favourite. */
+  short: string;
+  /** True when `short` takes "are" ("jigsaws are") rather than "is". */
+  plural?: boolean;
 }
 
 export interface SantaQuestion {
@@ -64,110 +68,110 @@ export interface SantaStoredQuestion {
 
 export type SantaStoredAnswers = Record<string, SantaStoredQuestion>;
 
-function choice(id: string, label: string, emoji: string, phrase: string): SantaOption {
-  return { id, label, emoji, phrase };
+function choice(id: string, label: string, emoji: string, phrase: string, short: string, plural = false): SantaOption {
+  return { id, label, emoji, phrase, short, plural };
 }
 
 const LOVE: SantaOption[] = [
-  choice("building", "Building", "🧱", "building things, especially when I can make something really tall"),
-  choice("arts", "Arts & crafts", "🎨", "arts and crafts with lots of colour"),
-  choice("jigsaws", "Jigsaws", "🧩", "doing jigsaws"),
-  choice("board-games", "Board games", "🎲", "playing board games with my family"),
-  choice("pretend", "Pretend play", "🎭", "playing pretend"),
-  choice("dressing-up", "Dressing up & jewellery", "💍", "dressing up and wearing jewellery"),
-  choice("cars", "Cars & trains", "🚂", "cars and trains"),
-  choice("science", "Science", "🔬", "science and finding out how things work"),
-  choice("outside", "Playing outside", "🌳", "playing outside"),
-  choice("music", "Music", "🎵", "music and singing"),
-  choice("soft-toys", "Soft toys & stories", "🧸", "soft toys and bedtime stories"),
-  choice("dolls", "Looking after baby dolls", "👶", "looking after baby dolls"),
+  choice("building", "Building", "🧱", "building things, especially when I can make something really tall", "building"),
+  choice("arts", "Arts & crafts", "🎨", "arts and crafts with lots of colour", "arts and crafts", true),
+  choice("jigsaws", "Jigsaws", "🧩", "doing jigsaws", "jigsaws", true),
+  choice("board-games", "Board games", "🎲", "playing board games with my family", "board games", true),
+  choice("pretend", "Pretend play", "🎭", "playing pretend", "pretend play"),
+  choice("dressing-up", "Dressing up & jewellery", "💍", "dressing up and wearing jewellery", "dressing up"),
+  choice("cars", "Cars & trains", "🚂", "cars and trains", "cars and trains", true),
+  choice("science", "Science", "🔬", "science and finding out how things work", "science"),
+  choice("outside", "Playing outside", "🌳", "playing outside", "outside"),
+  choice("music", "Music", "🎵", "music and singing", "music"),
+  choice("soft-toys", "Soft toys & stories", "🧸", "soft toys and bedtime stories", "soft toys", true),
+  choice("dolls", "Looking after baby dolls", "👶", "looking after baby dolls", "baby dolls", true),
 ];
 
 /** Older reading list. Harry Potter is removed for everyone except Hannah. */
 const OLDER_CHARACTERS: SantaOption[] = [
-  choice("bluey", "Bluey", "🐶", "Bluey and her family"),
-  choice("peppa", "Peppa Pig", "🐷", "Peppa Pig and muddy puddles"),
-  choice("paw-patrol", "PAW Patrol", "🐾", "PAW Patrol on a rescue"),
-  choice("ninjago", "Ninjago", "🥷", "the Ninjago ninjas"),
-  choice("barbie", "Barbie", "💖", "Barbie dolls"),
-  choice("minecraft", "Minecraft", "⛏️", "building worlds in Minecraft"),
-  choice("frozen", "Frozen/Disney Princess", "❄️", "the Frozen stories with Elsa and Anna"),
-  choice("hot-wheels", "Hot Wheels", "🏎️", "racing Hot Wheels cars"),
-  choice("pokemon", "Pokémon", "⚡", "catching Pokémon"),
-  choice("harry-potter", "Harry Potter", "🪄", "anything to do with Harry Potter and Hogwarts"),
-  choice("spider-man", "Spider-Man", "🕷️", "Spider-Man swinging about"),
-  choice("dinosaurs", "Dinosaurs", "🦕", "dinosaurs especially the enormous ones"),
-  choice("unicorns", "Unicorns", "🦄", "unicorns with sparkly manes"),
-  choice("gabbys", "Gabby's Dollhouse", "🏠", "Gabby's Dollhouse"),
-  choice("sonic", "Sonic", "💨", "Sonic speeding along"),
-  choice("star-wars", "Star Wars", "⭐", "Star Wars and the Jedi"),
+  choice("bluey", "Bluey", "🐶", "Bluey and her family", "Bluey"),
+  choice("peppa", "Peppa Pig", "🐷", "Peppa Pig and muddy puddles", "Peppa Pig"),
+  choice("paw-patrol", "PAW Patrol", "🐾", "PAW Patrol on a rescue", "PAW Patrol"),
+  choice("ninjago", "Ninjago", "🥷", "the Ninjago ninjas", "Ninjago"),
+  choice("barbie", "Barbie", "💖", "Barbie dolls", "Barbie"),
+  choice("minecraft", "Minecraft", "⛏️", "building worlds in Minecraft", "Minecraft"),
+  choice("frozen", "Frozen/Disney Princess", "❄️", "the Frozen stories with Elsa and Anna", "Frozen"),
+  choice("hot-wheels", "Hot Wheels", "🏎️", "racing Hot Wheels cars", "Hot Wheels"),
+  choice("pokemon", "Pokémon", "⚡", "catching Pokémon", "Pokémon"),
+  choice("harry-potter", "Harry Potter", "🪄", "anything to do with Harry Potter and Hogwarts", "Harry Potter"),
+  choice("spider-man", "Spider-Man", "🕷️", "Spider-Man swinging about", "Spider-Man"),
+  choice("dinosaurs", "Dinosaurs", "🦕", "dinosaurs especially the enormous ones", "dinosaurs", true),
+  choice("unicorns", "Unicorns", "🦄", "unicorns with sparkly manes", "unicorns", true),
+  choice("gabbys", "Gabby's Dollhouse", "🏠", "Gabby's Dollhouse", "Gabby's Dollhouse"),
+  choice("sonic", "Sonic", "💨", "Sonic speeding along", "Sonic"),
+  choice("star-wars", "Star Wars", "⭐", "Star Wars and the Jedi", "Star Wars"),
 ];
 
 /** Big-picture tiles for Zoe and Ethan. */
 const YOUNGER_CHARACTERS: SantaOption[] = [
-  choice("bluey", "Bluey", "🐶", "Bluey"),
-  choice("peppa", "Peppa", "🐷", "Peppa"),
-  choice("paw-patrol", "PAW Patrol", "🐾", "PAW Patrol"),
-  choice("thomas", "Thomas", "🚂", "Thomas the Tank Engine"),
-  choice("frozen", "Frozen", "❄️", "Frozen"),
-  choice("dinosaurs", "Dinosaurs", "🦕", "dinosaurs"),
-  choice("unicorns", "Unicorns", "🦄", "unicorns"),
-  choice("night-garden", "In the Night Garden", "🌙", "In the Night Garden"),
-  choice("ms-rachel", "Ms. Rachel", "🎤", "Ms Rachel"),
-  choice("paddington", "Paddington/teddy", "🧸", "Paddington"),
+  choice("bluey", "Bluey", "🐶", "Bluey", "Bluey"),
+  choice("peppa", "Peppa", "🐷", "Peppa", "Peppa"),
+  choice("paw-patrol", "PAW Patrol", "🐾", "PAW Patrol", "PAW Patrol"),
+  choice("thomas", "Thomas", "🚂", "Thomas the Tank Engine", "Thomas"),
+  choice("frozen", "Frozen", "❄️", "Frozen", "Frozen"),
+  choice("dinosaurs", "Dinosaurs", "🦕", "dinosaurs", "dinosaurs", true),
+  choice("unicorns", "Unicorns", "🦄", "unicorns", "unicorns", true),
+  choice("night-garden", "In the Night Garden", "🌙", "In the Night Garden", "In the Night Garden"),
+  choice("ms-rachel", "Ms. Rachel", "🎤", "Ms Rachel", "Ms Rachel"),
+  choice("paddington", "Paddington/teddy", "🧸", "Paddington", "Paddington"),
 ];
 
 const JIGSAW_OPTIONS: SantaOption[] = [
-  choice("jigsaws", "Jigsaws", "🧩", "doing jigsaws"),
-  choice("board-games", "Board games", "🎲", "playing board games with my family"),
-  choice("both", "Both", "✨", "doing jigsaws and playing board games with my family"),
-  choice("not-really", "Not really", "🙂", "having a break from jigsaws and board games"),
+  choice("jigsaws", "Jigsaws", "🧩", "doing jigsaws", "jigsaws", true),
+  choice("board-games", "Board games", "🎲", "playing board games with my family", "board games", true),
+  choice("both", "Both", "✨", "doing jigsaws and playing board games with my family", "jigsaws and board games", true),
+  choice("not-really", "Not really", "🙂", "having a break from jigsaws and board games", "something else"),
 ];
 
 const MAKE_OPTIONS: SantaOption[] = [
-  choice("play-doh", "Play-Doh or slime", "🟢", "squishing Play-Doh or slime"),
-  choice("painting", "Painting & colouring", "🖌️", "painting and colouring"),
-  choice("jewellery", "Beads, jewellery or nail art", "📿", "making beads, jewellery and nail art"),
-  choice("science-kit", "A science kit", "🔬", "trying a little science experiment"),
-  choice("lego", "Something with LEGO/building", "🧱", "building with LEGO"),
+  choice("play-doh", "Play-Doh or slime", "🟢", "squishing Play-Doh or slime", "Play-Doh"),
+  choice("painting", "Painting & colouring", "🖌️", "painting and colouring", "painting"),
+  choice("jewellery", "Beads, jewellery or nail art", "📿", "making beads, jewellery and nail art", "making jewellery"),
+  choice("science-kit", "A science kit", "🔬", "trying a little science experiment", "science"),
+  choice("lego", "Something with LEGO/building", "🧱", "building with LEGO", "LEGO"),
 ];
 
 const PRETEND_OPTIONS: SantaOption[] = [
-  choice("shop", "Running a shop", "🏪", "running a little shop"),
-  choice("doctor", "Doctor or vet", "🩺", "being a doctor or a vet"),
-  choice("tea-party", "Tea party/kitchen", "🍵", "having a tea party in the kitchen"),
-  choice("builder", "Builder", "👷", "being a builder"),
-  choice("racing", "Racing or train driver", "🏁", "being a racing driver or a train driver"),
-  choice("baby", "Looking after a baby", "👶", "looking after a baby"),
+  choice("shop", "Running a shop", "🏪", "running a little shop", "running a shop"),
+  choice("doctor", "Doctor or vet", "🩺", "being a doctor or a vet", "being a doctor"),
+  choice("tea-party", "Tea party/kitchen", "🍵", "having a tea party in the kitchen", "a tea party"),
+  choice("builder", "Builder", "👷", "being a builder", "being a builder"),
+  choice("racing", "Racing or train driver", "🏁", "being a racing driver or a train driver", "racing"),
+  choice("baby", "Looking after a baby", "👶", "looking after a baby", "looking after a baby"),
 ];
 
 const WHERE_OPTIONS: SantaOption[] = [
-  choice("outside", "Outside", "☀️", "outside in the fresh air"),
-  choice("bath", "In the bath", "🛁", "in the bath with lots of splashing"),
-  choice("den", "In a den or tunnel", "⛺", "in a den or a tunnel"),
-  choice("indoors", "Quietly indoors", "🛋️", "quietly indoors"),
+  choice("outside", "Outside", "☀️", "outside in the fresh air", "outside"),
+  choice("bath", "In the bath", "🛁", "in the bath with lots of splashing", "the bath"),
+  choice("den", "In a den or tunnel", "⛺", "in a den or a tunnel", "a den"),
+  choice("indoors", "Quietly indoors", "🛋️", "quietly indoors", "quiet time"),
 ];
 
 const COSY_OPTIONS: SantaOption[] = [
-  choice("story-book", "Story book", "📖", "a story book to snuggle up with"),
-  choice("soft-toy", "Soft toy", "🧸", "a soft toy to cuddle"),
-  choice("musical", "Something musical", "🔔", "something musical to sing along with"),
+  choice("story-book", "Story book", "📖", "a story book to snuggle up with", "a story book"),
+  choice("soft-toy", "Soft toy", "🧸", "a soft toy to cuddle", "a soft toy"),
+  choice("musical", "Something musical", "🔔", "something musical to sing along with", "music"),
 ];
 
 /** Age 1–2. These tiles only, plus a short cosy question that fits a toddler. */
 const JOANNA_LOVE: SantaOption[] = [
-  choice("shape-sorters", "Shape sorters", "🔷", "posting shapes in the shape sorter"),
-  choice("rockers", "Rockers & ride-ons", "🐴", "rocking and riding"),
-  choice("mega-bloks", "Mega Bloks / DUPLO", "🧱", "stacking Mega Bloks and DUPLO"),
-  choice("bath-toys", "Bath toys", "🛁", "splashing about at bath time"),
-  choice("soft-toys", "Soft toys", "🧸", "cuddling my soft toys"),
-  choice("books", "Books", "📚", "looking at books"),
+  choice("shape-sorters", "Shape sorters", "🔷", "posting shapes in the shape sorter", "shape sorters", true),
+  choice("rockers", "Rockers & ride-ons", "🐴", "rocking and riding", "rocking"),
+  choice("mega-bloks", "Mega Bloks / DUPLO", "🧱", "stacking Mega Bloks and DUPLO", "Mega Bloks", true),
+  choice("bath-toys", "Bath toys", "🛁", "splashing about at bath time", "bath time"),
+  choice("soft-toys", "Soft toys", "🧸", "cuddling my soft toys", "soft toys", true),
+  choice("books", "Books", "📚", "looking at books", "books", true),
 ];
 
 const JOANNA_CHARACTERS: SantaOption[] = [
-  choice("bluey", "Bluey", "🐶", "Bluey"),
-  choice("peppa", "Peppa", "🐷", "Peppa"),
-  choice("night-garden", "In the Night Garden", "🌙", "In the Night Garden"),
+  choice("bluey", "Bluey", "🐶", "Bluey", "Bluey"),
+  choice("peppa", "Peppa", "🐷", "Peppa", "Peppa"),
+  choice("night-garden", "In the Night Garden", "🌙", "In the Night Garden", "In the Night Garden"),
 ];
 
 function question(id: string, prompt: string, options: SantaOption[]): SantaQuestion {
@@ -294,6 +298,9 @@ export function santaIsOpen(now: Date, opensAt = SANTA_OPENS_EUROPE_LONDON): boo
 export interface SantaLetterPick {
   id: string;
   phrase: string;
+  /** Short favourite name. Falls back to the phrase when a caller omits it. */
+  short?: string;
+  plural?: boolean;
 }
 
 export interface SantaLetterSection {
@@ -344,10 +351,10 @@ const OPENERS: Record<SantaVoice, Record<string, Opener>> = {
   },
   younger: {
     love: (list) => `I love ${list}.`,
-    characters: (list) => `I smile about ${list}.`,
-    jigsaws: (list) => `I like ${list}.`,
+    characters: (list) => `It makes me smile to think about ${list}.`,
+    jigsaws: (list) => `A good game for me is ${list}.`,
     make: (list) => `Making things is fun, like ${list}.`,
-    pretend: (list) => `I like to pretend, like ${list}.`,
+    pretend: (list) => `Pretending is fun, like ${list}.`,
     where: (list) => `I play ${list}.`,
     cosy: (list) => `At bedtime I love ${list}.`,
   },
@@ -371,41 +378,176 @@ function nameSentence(name: string, age: number | null): string {
   return `My name is ${name} and I'm ${age}.`;
 }
 
-function favouriteSentence(voice: SantaVoice, phrase: string): string {
-  if (voice === "older") return `My very favourite is ${phrase}, because it makes me so happy.`;
-  if (voice === "toddler") return `My favourite is ${phrase}! It makes me so happy.`;
-  return `My favourite is ${phrase}. It makes me so happy.`;
+function capFirst(text: string): string {
+  if (!text || /^[A-Z0-9]/.test(text)) return text;
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function questionParagraph(voice: SantaVoice, section: SantaLetterSection): string | null {
-  const list = joinSantaPhrases(section.picks.map((pick) => pick.phrase));
+function pickShort(pick: SantaLetterPick): { short: string; plural: boolean } {
+  const short = (pick.short?.trim() || pick.phrase).trim();
+  return { short, plural: pick.plural === true };
+}
+
+/** Words we never lowercase, even mid-sentence: the child, the family, and Christmas. */
+const KEEP_CAPITAL = /^(I|I'm|I'll|I'd|I've|Mum|Dad|Mummy|Daddy|Santa|Christmas|Hannah|Lydia|Zoe|Ethan|Joanna)$/;
+
+/**
+ * For a line woven into a sentence, lowercase the first letter only when that word
+ * is an ordinary word. "I", "Mum", "Santa" and the children's names stay as they are.
+ */
+export function lowercaseOwnLineStart(line: string): string {
+  const match = /^([A-Za-z][A-Za-z']*)([\s\S]*)$/.exec(line);
+  if (!match) return line;
+  const [word, rest] = [match[1], match[2]];
+  if (KEEP_CAPITAL.test(word) || KEEP_CAPITAL.test(word[0].toUpperCase() + word.slice(1))) return line;
+  if (word !== word[0].toUpperCase() + word.slice(1).toLowerCase() && word !== word.toUpperCase()) return line;
+  // A single capital (The, Snow) can become a common word. All-caps and CamelCase stay.
+  if (word === word.toUpperCase() && word.length > 1) return line;
+  return word.charAt(0).toLowerCase() + word.slice(1) + rest;
+}
+
+function withTerminalPunctuation(line: string): string {
+  if (/[.!?]$/.test(line)) return line;
+  return `${line}${line.includes(" ") ? "." : "!"}`;
+}
+
+/** The child's own words as a P.S. sentence: capital start, and a stop if they left one off. */
+export function formatOwnLine(ownLine: string): string {
+  let line = ownLine.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  if (!line) return "";
+  if (/^i(?![a-z])/i.test(line)) line = `I${line.slice(1)}`;
+  else if (/^[a-z]/.test(line)) line = capFirst(line);
+  return withTerminalPunctuation(line);
+}
+
+type FavouriteLine = (short: string, plural: boolean) => string;
+
+function spokenFavourites(voice: SantaVoice): FavouriteLine[] {
+  const name = (short: string) => capFirst(short);
+  const verb = (plural: boolean) => (plural ? "are" : "is");
+  if (voice === "toddler") {
+    return [
+      (short, plural) => `${name(short)} ${verb(plural)} my favourite!`,
+      (short) => `I like ${short} best!`,
+      (short, plural) => `${name(short)} ${verb(plural)} the best!`,
+      (short) => `I like ${short} the most!`,
+      (short) => `Hooray for ${short}!`,
+      (short, plural) => `${name(short)} ${verb(plural)} my best thing!`,
+      (short) => `I like ${short} so much!`,
+    ];
+  }
+  if (voice === "younger") {
+    return [
+      (short, plural) => `${name(short)} ${verb(plural)} my favourite.`,
+      (short) => `I like ${short} best.`,
+      (short, plural) => `${name(short)} ${verb(plural)} the best bit.`,
+      (short) => `I smile most about ${short}.`,
+      (short) => `Best of all is ${short}.`,
+      (short, plural) => `${name(short)} ${verb(plural)} the one I like most.`,
+      (short) => `I like ${short} lots.`,
+    ];
+  }
+  return [
+    (short, plural) => (plural ? `${name(short)} are my very favourite of all.` : `${name(short)} is my very favourite thing of all.`),
+    (short) => `If I had to choose, I'd pick ${short} every time.`,
+    (short, plural) => `${name(short)} ${verb(plural)} the best bit for me.`,
+    (short) => `Nothing makes me smile like ${short}.`,
+    (short) => `The one I love most is ${short}.`,
+    (short) => `I come back to ${short} every time.`,
+    (short) => `Most of all, I love ${short}.`,
+  ];
+}
+
+function foldFavourite(sentence: string, short: string, plural: boolean, voice: SantaVoice): string {
+  const bare = sentence.replace(/[.!]$/, "");
+  if (voice === "toddler") return plural ? `${bare}, but ${short} are the best!` : `${bare}, but ${short} is the best!`;
+  if (voice === "younger") return plural ? `${bare}, but ${short} are the best.` : `${bare}, but ${short} is the best.`;
+  return plural ? `${bare}, but the best of all is ${short}.` : `${bare}, but ${short} is the best of all.`;
+}
+
+interface BuiltSection {
+  questionId: string;
+  text: string;
+  thin: boolean;
+  short: string;
+  plural: boolean;
+}
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function questionParagraph(voice: SantaVoice, section: SantaLetterSection, favourites: { foldUsed: boolean; spoken: number }): BuiltSection | null {
+  const picks = section.picks.filter((pick) => pick.phrase.trim());
+  const list = joinSantaPhrases(picks.map((pick) => pick.phrase));
   if (!list) return null;
   const open = OPENERS[voice][section.questionId] ?? ((items: string) => (voice === "older" ? `I love ${items}.` : `I like ${items}.`));
   const sentence = open(list);
-  if (!section.favourite) return sentence;
-  const favourite = section.picks.find((pick) => pick.id === section.favourite);
-  if (!favourite?.phrase.trim()) return sentence;
-  const phrase = favourite.phrase.trim();
-  // One starred pick is already the whole sentence, so name it once.
-  if (section.picks.length === 1) {
-    const bare = sentence.replace(/[.!]$/, "");
-    if (voice === "toddler") return `${bare}. It is my favourite!`;
-    if (voice === "younger") return `${bare}. It is my favourite because it makes me so happy.`;
-    return `${bare}, and it is my very favourite because it makes me so happy.`;
+  const favourite = picks.find((pick) => pick.id === section.favourite);
+  const named = favourite ? pickShort(favourite) : pickShort(picks[0]);
+  const shortPick = picks.length === 1 && wordCount(picks[0].phrase) <= 3;
+  const bareLove = /^I (?:love|like) \S+(?: \S+){0,2}\.$/.test(sentence);
+  if (!favourite) {
+    return { questionId: section.questionId, text: sentence, thin: shortPick && bareLove, short: named.short, plural: named.plural };
   }
-  return `${sentence} ${favouriteSentence(voice, phrase)}`;
+  const lines = spokenFavourites(voice);
+  // The first list folds the short name into that sentence. Later favourites, and a
+  // starred pick on its own, each take the next line so one letter never repeats a template.
+  if (picks.length > 1 && !favourites.foldUsed) {
+    favourites.foldUsed = true;
+    return { questionId: section.questionId, text: foldFavourite(sentence, named.short, named.plural, voice), thin: false, short: named.short, plural: named.plural };
+  }
+  const callout = lines[favourites.spoken % lines.length](named.short, named.plural);
+  favourites.spoken += 1;
+  if (shortPick) {
+    return { questionId: section.questionId, text: callout, thin: false, short: named.short, plural: named.plural };
+  }
+  return { questionId: section.questionId, text: `${sentence} ${callout}`, thin: false, short: named.short, plural: named.plural };
+}
+
+function thinExtra(short: string, plural: boolean): string {
+  return plural ? `${capFirst(short)} are a treat as well.` : `${capFirst(short)} is a treat as well.`;
+}
+
+/** A tiny "I love doing jigsaws." joins the paragraph next to it instead of sitting alone. */
+function mergeThinSections(sections: BuiltSection[]): string[] {
+  const used = new Set<number>();
+  const extras = new Map<number, string[]>();
+  const related = (questionId: string) => questionId !== "characters";
+  for (let i = 0; i < sections.length; i += 1) {
+    if (!sections[i].thin) continue;
+    const prev = i - 1;
+    const next = i + 1;
+    const prevOk = prev >= 0 && !sections[prev].thin && related(sections[prev].questionId);
+    const nextOk = next < sections.length && !sections[next].thin && related(sections[next].questionId);
+    const previousMentions = prevOk && sections[prev].text.toLowerCase().includes(sections[i].short.toLowerCase());
+    const host = previousMentions ? (nextOk ? next : prev) : prevOk ? prev : nextOk ? next : prev >= 0 && !sections[prev].thin ? prev : nextOk ? next : -1;
+    if (host < 0) {
+      sections[i] = {
+        ...sections[i],
+        thin: false,
+        text: `I am happy with ${sections[i].short}.`,
+      };
+      continue;
+    }
+    used.add(i);
+    const notes = extras.get(host) ?? [];
+    notes.push(thinExtra(sections[i].short, sections[i].plural));
+    extras.set(host, notes);
+  }
+  const paragraphs: string[] = [];
+  for (let i = 0; i < sections.length; i += 1) {
+    if (used.has(i)) continue;
+    const extra = extras.get(i);
+    paragraphs.push(extra ? `${sections[i].text} ${extra.join(" ")}` : sections[i].text);
+  }
+  return paragraphs;
 }
 
 function thanks(voice: SantaVoice): string {
   if (voice === "toddler") return "Thank you, Santa. Have a safe journey on Christmas Eve. I try to be kind and helpful.";
   if (voice === "younger") return "Thank you, Santa. Have a safe journey on Christmas Eve. I have tried to be kind and helpful.";
   return "Thank you, Santa, for reading my letter. I hope you have a safe journey on Christmas Eve. I have tried to be kind and helpful this year.";
-}
-
-function spokenLine(ownLine: string): string {
-  const cleaned = ownLine.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
-  if (!cleaned) return "";
-  return /[.!?]$/.test(cleaned) ? cleaned : `${cleaned}.`;
 }
 
 /**
@@ -419,20 +561,19 @@ export function composeSantaLetter(draft: SantaLetterDraft): string {
   const intro = voice === "toddler"
     ? `${named} A grown-up helped me write this because I'm still little. ${HOPE}`
     : `${named} ${HOPE}`;
-  const blocks = ["Dear Santa,", intro];
+  const favourites = { foldUsed: false, spoken: 0 };
+  const built: BuiltSection[] = [];
   for (const section of draft.sections) {
     if (section.picks.length === 0) continue;
-    const paragraph = questionParagraph(voice, section);
-    if (paragraph) blocks.push(paragraph);
+    const paragraph = questionParagraph(voice, section, favourites);
+    if (paragraph) built.push(paragraph);
   }
-  const line = spokenLine(draft.ownLine ?? "");
-  if (line) {
-    const lead = voice === "toddler" ? "I wanted to tell you" : "I also wanted to tell you";
-    blocks.push(`${lead}: ${line}`);
-  }
+  const blocks = ["Dear Santa,", intro, ...mergeThinSections(built)];
   if (draft.hasDrawing) blocks.push("I've drawn you a picture too!");
   blocks.push(thanks(voice));
   blocks.push(`Love from ${name}\nMerry Christmas!`);
+  const line = formatOwnLine(draft.ownLine ?? "");
+  if (line) blocks.push(`P.S. ${line}`);
   return blocks.join("\n\n");
 }
 
@@ -508,7 +649,10 @@ export function validateSantaAnswers(
     const optionById = new Map(questionSpec.options.map((option) => [option.id, option]));
     sections.push({
       questionId: questionSpec.id,
-      picks: stored.picks.map((pick) => ({ id: pick.id, phrase: optionById.get(pick.id)?.phrase ?? pick.label })),
+      picks: stored.picks.map((pick) => {
+        const option = optionById.get(pick.id);
+        return { id: pick.id, phrase: option?.phrase ?? pick.label, short: option?.short ?? pick.label, plural: option?.plural === true };
+      }),
       favourite: stored.favourite,
     });
   }

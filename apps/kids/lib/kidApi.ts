@@ -108,6 +108,9 @@ export interface SantaOption {
   emoji: string;
   /** Child-like words for this choice, from the shared catalog. */
   phrase?: string;
+  /** Short name for the favourite line. */
+  short?: string;
+  plural?: boolean;
 }
 
 export interface SantaQuestion {

@@ -948,9 +948,9 @@ test("a letter to Santa stays hidden until 15 Nov 2026 London, then the device's
   });
   assert.equal(first.status, 200);
   assert.match(first.json.letter.letterText, /My name is Hannah and I'm 9/);
-  assert.match(first.json.letter.letterText, /My very favourite is music and singing, because it makes me so happy/);
+  assert.match(first.json.letter.letterText, /but music is the best of all/);
   assert.match(first.json.letter.letterText, /I've drawn you a picture too!/);
-  assert.match(first.json.letter.letterText, /I also wanted to tell you: The snow is sparkly/);
+  assert.match(first.json.letter.letterText, /P\.S\. The snow is sparkly\./);
   assert.match(first.json.letter.letterText, /Love from Hannah/);
   assert.doesNotMatch(first.json.letter.letterText, /\bI want\b|\bbring me\b|\bplease get\b|\bI will get\b|\bI'll get\b|\byou'll get\b/i);
   assert.match(first.json.letter.drawingPng, /^data:image\/png;base64,/);

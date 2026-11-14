@@ -47,7 +47,7 @@ function letterFromChoices(
     if (!choice || choice.picks.length === 0) return [];
     const picks = choice.picks.flatMap((id) => {
       const option = question.options.find((item) => item.id === id);
-      return option ? [{ id: option.id, phrase: option.phrase?.trim() || option.label }] : [];
+      return option ? [{ id: option.id, phrase: option.phrase?.trim() || option.label, short: option.short?.trim() || option.label, plural: option.plural === true }] : [];
     });
     if (picks.length === 0) return [];
     return [{ questionId: question.id, picks, favourite: choice.favourite }];
