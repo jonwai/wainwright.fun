@@ -10,18 +10,19 @@ import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { fetchMissingIcons } from "./api";
 import { DevicesPanel } from "./DevicesPanel";
+import { SantaLettersPanel } from "./SantaLettersPanel";
 import { ChildrenPanel, AppsPanel, SystemAppsPanel, WebsitesPanel, ThemesPanel, RestrictionsPanel } from "./TablePanels";
 import { TermDatesPanel } from "./TermDatesPanel";
 import { TABS, tabToPath, useRoute, type Tab } from "./useRoute";
 import "./index.css";
 
-const LOCAL_TABS: Tab[] = ["children", "devices", "apps", "system-apps", "websites", "themes", "restrictions", "term-dates"];
-/** "devices" is local-only, so it is not in the hosted admin's TABS list. */
-const LOCAL_ROUTE_EXTRAS = ["devices"];
+const LOCAL_TABS: Tab[] = ["children", "devices", "santa-letters", "apps", "system-apps", "websites", "themes", "restrictions", "term-dates"];
+/** "devices" and "santa-letters" are local-only, so they are not in the hosted admin's TABS list. */
+const LOCAL_ROUTE_EXTRAS = ["devices", "santa-letters"];
 const LOCAL_NAV: { id: Tab; label: string }[] = (() => {
   const items = TABS.filter((t) => LOCAL_TABS.includes(t.id));
   const at = items.findIndex((t) => t.id === "children");
-  items.splice(at + 1, 0, { id: "devices", label: "Devices" });
+  items.splice(at + 1, 0, { id: "devices", label: "Devices" }, { id: "santa-letters", label: "Santa letters" });
   return items;
 })();
 const TOKEN = "home-network";
@@ -107,6 +108,7 @@ function LocalAdmin() {
       <main className="flex-1 p-4 sm:p-8 max-w-5xl mx-auto w-full">
         {tab === "children" && <ChildrenPanel accessToken={TOKEN} includeSnacks={false} includePairing={false} includeInternetBreak />}
         {tab === "devices" && <DevicesPanel accessToken={TOKEN} />}
+        {tab === "santa-letters" && <SantaLettersPanel accessToken={TOKEN} />}
         {(tab === "apps" || tab === "websites") && <FetchMissingIcons />}
         {tab === "apps" && <AppsPanel accessToken={TOKEN} />}
         {tab === "system-apps" && <SystemAppsPanel accessToken={TOKEN} />}

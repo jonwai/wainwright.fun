@@ -13,7 +13,8 @@ export type Tab =
   | "chores"
   | "term-dates"
   | "deploy"
-  | "devices";
+  | "devices"
+  | "santa-letters";
 
 export const TABS: { id: Tab; label: string }[] = [
   { id: "children", label: "Children" },

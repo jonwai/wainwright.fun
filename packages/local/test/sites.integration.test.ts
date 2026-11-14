@@ -103,6 +103,8 @@ async function writeScans(dir: string, data: ReturnType<typeof hostedFixture>) {
 let pool: pg.Pool;
 let port = 0;
 let unsignedPort = 0;
+/** Same server with the clock after letters to Santa have opened. */
+let openPort = 0;
 const HA_TOKEN = "ha-test-token";
 const DOMAINS_TOKEN = "domains-test-token";
 let haTokenFile = "";
@@ -270,6 +272,7 @@ before(async () => {
   };
   port = await listen(createLocalSites({ ...options, signer: { certFile, keyFile } }));
   unsignedPort = await listen(createLocalSites({ ...options, signer: null }));
+  openPort = await listen(createLocalSites({ ...options, now: () => new Date("2026-11-16T08:00:00.000Z"), signer: { certFile, keyFile } }));
 });
 
 after(async () => {
@@ -893,4 +896,114 @@ test("a parent can end a break, and the kid page is told the break fields", { sk
     haDown = false;
     haBreak = null;
   }
+});
+
+test("a letter to Santa stays hidden until 15 Nov 2026 London, then the device's child is stored", { skip: !url }, async () => {
+  const hannahIp = "192.168.1.182";
+  const before = Number((await pool.query("SELECT count(*)::int AS n FROM kids.santa_letters")).rows[0].n);
+  const closed = await apex("/kid/santa", hannahIp);
+  assert.equal(closed.status, 200);
+  assert.deepEqual(closed.json, { open: false });
+  const refused = await apex("/kid/santa", hannahIp, {
+    method: "POST",
+    body: { answers: { love: { picks: ["building"], favourite: "building" } }, ownLine: "Too early" },
+  });
+  assert.equal(refused.status, 403);
+  assert.match(refused.json.error, /not open/i);
+  assert.equal(Number((await pool.query("SELECT count(*)::int AS n FROM kids.santa_letters")).rows[0].n), before);
+
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const open = (pathname: string, ip: string | null, init?: Parameters<typeof call>[3]) => call("wainwright.fun", pathname, ip, { ...init, port: openPort });
+  const form = await open("/kid/santa", hannahIp);
+  assert.equal(form.json.open, true);
+  assert.equal(form.json.child.id, "hannah");
+  assert.equal(form.json.style, "reading");
+  const hannahChoices = form.json.questions.flatMap((question: { options: { id: string }[] }) => question.options.map((option) => option.id));
+  assert.equal(hannahChoices.includes("harry-potter"), true);
+  assert.equal(hannahChoices.includes("science"), true);
+
+  const zoeOnHannahHost = await call("hannah.wainwright.fun", "/kid/santa", ZOE, { port: openPort });
+  assert.equal(zoeOnHannahHost.json.child.id, "zoe");
+  assert.equal(zoeOnHannahHost.json.style, "tiles");
+  const zoeChoices = zoeOnHannahHost.json.questions.flatMap((question: { options: { id: string }[] }) => question.options.map((option) => option.id));
+  assert.equal(zoeChoices.includes("science"), true);
+  assert.equal(zoeChoices.includes("harry-potter"), false);
+  assert.equal(zoeChoices.includes("ninjago"), false);
+
+  const tooMany = await open("/kid/santa", hannahIp, {
+    method: "POST",
+    body: { answers: { love: { picks: ["building", "music", "arts", "jigsaws"] } } },
+  });
+  assert.equal(tooMany.status, 400);
+
+  const first = await open("/kid/santa", hannahIp, {
+    method: "POST",
+    body: {
+      answers: { love: { picks: ["building", "music"], favourite: "music" }, characters: { picks: ["harry-potter"] } },
+      ownLine: "The snow is sparkly",
+      drawing: png,
+    },
+  });
+  assert.equal(first.status, 200);
+  assert.match(first.json.letter.letterText, /Here are some things I love/);
+  assert.match(first.json.letter.letterText, /Music \(my favourite\)/);
+  assert.match(first.json.letter.letterText, /Love, Hannah/);
+  assert.doesNotMatch(first.json.letter.letterText, /I will get|I'll get|you'll get/i);
+  assert.match(first.json.letter.drawingPng, /^data:image\/png;base64,/);
+  assert.equal(first.json.letter.clientIp, undefined);
+
+  const row = (await pool.query("SELECT child_id, own_line, letter_text, host(client_ip) AS client_ip, octet_length(drawing_png)::int AS drawing_bytes FROM kids.santa_letters ORDER BY id DESC LIMIT 1")).rows[0];
+  assert.equal(row.child_id, "hannah");
+  assert.equal(row.own_line, "The snow is sparkly");
+  assert.equal(row.client_ip, hannahIp);
+  assert.ok(row.drawing_bytes > 8);
+  assert.match(row.letter_text, /Harry Potter/);
+
+  const second = await open("/kid/santa", hannahIp, {
+    method: "POST",
+    body: { answers: { cosy: { picks: ["story-book"], favourite: "story-book" } }, ownLine: "Second letter", drawing: png },
+  });
+  assert.equal(second.status, 200);
+  const saved = await open("/kid/santa", hannahIp);
+  assert.match(saved.json.latest.letterText, /Second letter/);
+  assert.equal(Number((await pool.query("SELECT count(*)::int AS n FROM kids.santa_letters WHERE child_id = 'hannah'")).rows[0].n), 2);
+
+  const lydiaHarry = await call("wainwright.fun", "/kid/santa", LYDIA, {
+    port: openPort,
+    method: "POST",
+    body: { answers: { characters: { picks: ["harry-potter"] } } },
+  });
+  assert.equal(lydiaHarry.status, 400);
+  const joanna = await open("/kid/santa", MAC, {
+    method: "POST",
+    headers: { cookie: "tickets_act_as=joanna" },
+    body: { answers: { characters: { picks: ["ninjago"] } } },
+  });
+  assert.equal(joanna.status, 400);
+  const joannaOk = await open("/kid/santa", MAC, {
+    method: "POST",
+    headers: { cookie: "tickets_act_as=joanna" },
+    body: { answers: { love: { picks: ["bath-toys", "books"], favourite: "books" }, characters: { picks: ["bluey"] } } },
+  });
+  assert.equal(joannaOk.status, 200);
+  assert.match(joannaOk.json.letter.letterText, /Love, Joanna/);
+  const ethan = await open("/kid/santa", MAC, {
+    method: "POST",
+    headers: { cookie: "tickets_act_as=ethan" },
+    body: { answers: { love: { picks: ["science"] } } },
+  });
+  assert.equal(ethan.status, 400);
+
+  const kidAdmin = await call("admin.wainwright.fun", "/api/admin/santa-letters", hannahIp, { port: openPort });
+  assert.equal(kidAdmin.status, 403);
+  const adminList = await call("admin.wainwright.fun", "/api/admin/santa-letters", MAC, { port: openPort });
+  assert.equal(adminList.status, 200);
+  const hannah = adminList.json.letters.find((item: { childId: string }) => item.childId === "hannah");
+  assert.equal(hannah.submissions, 2);
+  assert.match(hannah.latest.letterText, /Second letter/);
+  assert.equal(hannah.latest.ownLine, "Second letter");
+  assert.match(hannah.latest.drawingPng, /^data:image\/png;base64,/);
+  const joannaRow = adminList.json.letters.find((item: { childId: string }) => item.childId === "joanna");
+  assert.equal(joannaRow.latest.answers.love.favourite, "books");
+  assert.equal((await call("admin.wainwright.fun", "/api/admin/santa-letters", MAC, { method: "POST", port: openPort })).status, 405);
 });

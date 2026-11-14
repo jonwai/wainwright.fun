@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { applyKidTheme, getDevFallbackConfig } from "./siteConfig";
 import { InternetControls } from "./components/InternetControls";
+import { SantaLetter } from "./components/SantaLetter";
 import { ProfileSection } from "./components/ProfileSection";
 import { SearchBar } from "./components/SearchBar";
 import { UnifiedCard } from "./components/UnifiedCard";
@@ -287,6 +288,7 @@ export default function App() {
       </button>
 
       <main className="container relative z-1 mx-auto px-5 pt-10 pb-12 sm:px-8">
+        {LOCAL_MODE && <SantaLetter key={config.child.subdomain} />}
         {LOCAL_MODE && <InternetControls />}
         {previewing && (
           <p className="m-0 mb-6 text-center text-sm font-semibold px-4 py-2.5 rounded-xl bg-surface border border-border shadow-card">
