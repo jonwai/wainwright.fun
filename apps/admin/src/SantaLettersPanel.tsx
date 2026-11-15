@@ -8,6 +8,11 @@ interface SantaPick {
   emoji: string;
 }
 
+interface SantaReply {
+  text: string;
+  revealAt: string;
+}
+
 interface SantaLetter {
   id: string;
   submittedAt: string;
@@ -16,6 +21,7 @@ interface SantaLetter {
   letterText: string;
   drawingPng: string | null;
   clientIp: string | null;
+  reply?: SantaReply | null;
 }
 
 interface SantaChild {
@@ -75,6 +81,7 @@ export function SantaLettersPanel({ accessToken }: { accessToken: string }) {
     <div className="grid gap-4">
       <p className="text-sm text-muted m-0">
         Each child&apos;s latest letter. Older sends are kept in <span className="font-semibold">kids.santa_letters</span>.
+        A reply from Santa, once it is stored, is shown here with the time it appears on their page.
       </p>
       {letters.map((child) => (
         <article key={child.childId} className="bg-surface border border-border rounded-xl p-4 grid gap-3">
@@ -110,6 +117,16 @@ export function SantaLettersPanel({ accessToken }: { accessToken: string }) {
                 <img src={child.latest.drawingPng} alt={`${child.name}'s drawing`} className="max-w-full w-80 rounded-lg border border-border" />
               ) : (
                 <p className="m-0 text-sm text-muted">No drawing</p>
+              )}
+              {child.latest.reply && typeof child.latest.reply.text === "string" && (
+                <div>
+                  <p className="m-0 text-sm font-semibold">
+                    Santa&apos;s reply · shows on their page from {formatWhen(child.latest.reply.revealAt)}
+                  </p>
+                  <div className="santa-admin-letter santa-admin-reply" aria-label={`Santa's reply to ${child.name}`}>
+                    {child.latest.reply.text}
+                  </div>
+                </div>
               )}
               <div className="santa-admin-letter" aria-label={`${child.name}'s letter`}>
                 {santaLetterBlocks(child.latest.letterText).map((block, index) => {

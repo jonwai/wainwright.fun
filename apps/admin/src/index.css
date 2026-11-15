@@ -159,3 +159,9 @@ a {
 .santa-admin-signoff span {
   display: block;
 }
+
+.santa-admin-reply {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  margin-top: 0.35rem;
+}

@@ -875,6 +875,21 @@ a {
   background: var(--santa-paper);
 }
 
+.santa-see-mine {
+  justify-self: start;
+  min-height: 2.75rem;
+  padding: 0.2rem 0.15rem;
+  border: 0;
+  background: transparent;
+  color: var(--santa-green);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+
 .santa-paper {
   margin: 0.85rem 0 1rem;
   padding: 1.45rem 1.3rem 1.35rem;
@@ -899,6 +914,12 @@ a {
 .santa-letter.is-tiles .santa-paper {
   font-size: clamp(1.35rem, 3.2vw, 1.7rem);
   line-height: 1.55;
+}
+
+/* Santa's reply is stored prose. Keep every line break and blank line; do not flow it into paragraphs. */
+.santa-paper.santa-reply {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 .santa-paper p {

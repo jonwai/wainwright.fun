@@ -2,6 +2,12 @@
  * Store and read letters to Santa. The child is the device (or a parent's act-as choice),
  * the same way /kid/internet works. Submissions before SANTA_OPENS_EUROPE_LONDON are refused.
  * Every send is a new row; the launcher and the admin show the latest.
+ *
+ * A reply lives on that letter in kids.santa_replies. The launcher receives the words only
+ * when the reply is for the latest letter and `now` is at or after reveal_at. The clock is
+ * the `now` argument (the sites server passes its own), so a test can stand before and after
+ * the reveal without waiting. The query itself also refuses rows that are not yet due, and
+ * the presenter drops them again so the words cannot ride along in the JSON.
  */
 import { calculateAge } from "../../shared/scripts/birthday.js";
 import { HttpError, type Result } from "./app.js";
@@ -27,6 +33,12 @@ export interface StoredSantaLetter {
   clientIp: string | null;
 }
 
+/** Words from Santa. `text` is the stored reply, with its line breaks left as they were saved. */
+export interface SantaReply {
+  text: string;
+  revealAt: string;
+}
+
 function asBuffer(value: unknown): Buffer | null {
   if (!value) return null;
   if (Buffer.isBuffer(value)) return value.length ? value : null;
@@ -43,6 +55,43 @@ function drawingDataUrl(value: unknown): string | null {
 function asAnswers(value: unknown): SantaStoredAnswers {
   if (typeof value === "string") return JSON.parse(value) as SantaStoredAnswers;
   return (value ?? {}) as SantaStoredAnswers;
+}
+
+function asTime(value: unknown): Date | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+}
+
+/** Stored reply text, including leading, trailing and internal blank lines. */
+function replyText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  return String(value);
+}
+
+/**
+ * The reply the launcher may show. Null unless this row is for the child and reveal_at
+ * has been reached. A row that arrives early (the words included) is still dropped.
+ */
+function replyForChild(row: Record<string, unknown> | undefined, childId: string, now: Date): SantaReply | null {
+  if (!row || String(row.child_id) !== childId) return null;
+  const reveal = asTime(row.reveal_at);
+  if (!reveal || now.getTime() < reveal.getTime()) return null;
+  return { text: replyText(row.reply_text), revealAt: reveal.toISOString() };
+}
+
+function replyForAdmin(row: Record<string, unknown>): { letterId: string; childId: string; reply: SantaReply } | null {
+  const reveal = asTime(row.reveal_at);
+  if (!reveal) return null;
+  return {
+    letterId: String(row.letter_id),
+    childId: String(row.child_id),
+    reply: { text: replyText(row.reply_text), revealAt: reveal.toISOString() },
+  };
 }
 
 function present(row: Record<string, unknown>): StoredSantaLetter {
@@ -99,7 +148,7 @@ export async function childAgeYears(db: Queryable, childId: string, now: Date): 
   return age;
 }
 
-function publicForm(childId: string, childName: string, age: number | null, latest: StoredSantaLetter | null) {
+function publicForm(childId: string, childName: string, age: number | null, latest: StoredSantaLetter | null, reply: SantaReply | null) {
   const child = santaChild(childId);
   return {
     open: true as const,
@@ -109,6 +158,7 @@ function publicForm(childId: string, childName: string, age: number | null, late
     maxPicks: 3,
     questions: child.questions,
     latest: latest ? forChild(latest) : null,
+    reply,
   };
 }
 
@@ -124,7 +174,27 @@ export async function getSantaLetter(db: Queryable, childId: string, childName: 
      LIMIT 1`,
     [childId],
   );
-  return { status: 200, body: publicForm(childId, childName, age, rows[0] ? present(rows[0]) : null) };
+  const latest = rows[0] ? present(rows[0]) : null;
+  const reply = latest ? await revealedReply(db, latest.id, childId, now) : null;
+  return { status: 200, body: publicForm(childId, childName, age, latest, reply) };
+}
+
+/**
+ * Reply words for this letter, or null. The WHERE clause does not return the row until
+ * `now` has reached reveal_at, so the words stay in the database. `now` is the caller's
+ * clock, not the database clock. The presenter checks the same clock again.
+ */
+async function revealedReply(db: Queryable, letterId: string, childId: string, now: Date): Promise<SantaReply | null> {
+  const { rows } = await db.query(
+    `-- santa-revealed-reply
+     SELECT child_id, reply_text, reveal_at
+     FROM kids.santa_replies
+     WHERE letter_id = $1
+       AND child_id = $2
+       AND reveal_at <= $3::timestamptz`,
+    [letterId, childId, now],
+  );
+  return replyForChild(rows[0], childId, now);
 }
 
 export async function postSantaLetter(db: Queryable, childId: string, childName: string, rawBody: string, clientIp: string | null, now = new Date()): Promise<Result> {
@@ -160,6 +230,12 @@ export async function listSantaLetters(db: Queryable): Promise<Result> {
      FROM kids.santa_letters
      ORDER BY submitted_at DESC, id DESC`,
   );
+  // Parents see a reply as soon as it is stored, including before the children do, with its reveal time.
+  const replies = await db.query(
+    `-- santa-reply-list
+     SELECT letter_id, child_id, reply_text, reveal_at
+     FROM kids.santa_replies`,
+  );
   const latest = new Map<string, StoredSantaLetter>();
   const submissions = new Map<string, number>();
   for (const row of letters.rows) {
@@ -167,15 +243,26 @@ export async function listSantaLetters(db: Queryable): Promise<Result> {
     submissions.set(childId, (submissions.get(childId) ?? 0) + 1);
     if (!latest.has(childId)) latest.set(childId, present(row));
   }
+  const replyByLetter = new Map<string, { childId: string; reply: SantaReply }>();
+  for (const row of replies.rows) {
+    const reply = replyForAdmin(row);
+    if (reply) replyByLetter.set(reply.letterId, reply);
+  }
   return {
     status: 200,
     body: {
-      letters: people.rows.map((person) => ({
-        childId: String(person.id),
-        name: String(person.display_name),
-        submissions: submissions.get(String(person.id)) ?? 0,
-        latest: latest.get(String(person.id)) ?? null,
-      })),
+      letters: people.rows.map((person) => {
+        const childId = String(person.id);
+        const letter = latest.get(childId) ?? null;
+        const stored = letter ? replyByLetter.get(letter.id) : undefined;
+        const reply = stored && stored.childId === childId ? stored.reply : null;
+        return {
+          childId,
+          name: String(person.display_name),
+          submissions: submissions.get(childId) ?? 0,
+          latest: letter ? { ...letter, reply } : null,
+        };
+      }),
     },
   };
 }
