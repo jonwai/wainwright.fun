@@ -103,8 +103,12 @@ async function writeScans(dir: string, data: ReturnType<typeof hostedFixture>) {
 let pool: pg.Pool;
 let port = 0;
 let unsignedPort = 0;
-/** Same server with the clock after letters to Santa have opened. */
+/** Same server with the clock after letters to Santa have opened (and after replies are revealed). */
 let openPort = 0;
+/** Letters are open, one millisecond before a reply timed for 2026-11-16T06:00:00.000Z. */
+let beforeRevealPort = 0;
+/** Letters are open, at the exact reveal instant. */
+let revealPort = 0;
 const HA_TOKEN = "ha-test-token";
 const DOMAINS_TOKEN = "domains-test-token";
 let haTokenFile = "";
@@ -273,6 +277,8 @@ before(async () => {
   port = await listen(createLocalSites({ ...options, signer: { certFile, keyFile } }));
   unsignedPort = await listen(createLocalSites({ ...options, signer: null }));
   openPort = await listen(createLocalSites({ ...options, now: () => new Date("2026-11-16T08:00:00.000Z"), signer: { certFile, keyFile } }));
+  beforeRevealPort = await listen(createLocalSites({ ...options, now: () => new Date("2026-11-16T05:59:59.999Z"), signer: { certFile, keyFile } }));
+  revealPort = await listen(createLocalSites({ ...options, now: () => new Date("2026-11-16T06:00:00.000Z"), signer: { certFile, keyFile } }));
 });
 
 after(async () => {
@@ -970,6 +976,7 @@ test("a letter to Santa stays hidden until 15 Nov 2026 London, then the device's
   assert.equal(second.status, 200);
   const saved = await open("/kid/santa", hannahIp);
   assert.match(saved.json.latest.letterText, /Second letter/);
+  assert.equal(saved.json.reply, null);
   assert.equal(Number((await pool.query("SELECT count(*)::int AS n FROM kids.santa_letters WHERE child_id = 'hannah'")).rows[0].n), 2);
 
   const lydiaHarry = await call("wainwright.fun", "/kid/santa", LYDIA, {
@@ -1012,5 +1019,54 @@ test("a letter to Santa stays hidden until 15 Nov 2026 London, then the device's
   assert.match(hannah.latest.drawingPng, /^data:image\/png;base64,/);
   const joannaRow = adminList.json.letters.find((item: { childId: string }) => item.childId === "joanna");
   assert.equal(joannaRow.latest.answers.love.favourite, "books");
+  assert.equal(joannaRow.latest.reply, null);
   assert.equal((await call("admin.wainwright.fun", "/api/admin/santa-letters", MAC, { method: "POST", port: openPort })).status, 405);
+
+  const letterIds = (await pool.query("SELECT id FROM kids.santa_letters WHERE child_id = 'hannah' ORDER BY submitted_at ASC, id ASC")).rows.map((row) => row.id);
+  assert.equal(letterIds.length, 2);
+  const olderReply = "This reply belongs to an earlier letter and must stay put.";
+  const secret = " \nDear Hannah,\n\nThe elves saved you a seat.\n\n\nKeep looking up.\n ";
+  await pool.query(
+    `INSERT INTO kids.santa_replies (letter_id, child_id, reply_text, reveal_at)
+     VALUES ($1, 'hannah', $2, '2026-11-16T06:00:00.000Z'),
+            ($3, 'hannah', $4, '2026-11-16T06:00:00.000Z')`,
+    [letterIds[0], olderReply, letterIds[1], secret],
+  );
+  await assert.rejects(() => pool.query(
+    `INSERT INTO kids.santa_replies (letter_id, child_id, reply_text, reveal_at)
+     VALUES ($1, 'hannah', 'a second reply', '2026-11-16T06:00:00.000Z')`,
+    [letterIds[1]],
+  ));
+
+  const hidden = await call("wainwright.fun", "/kid/santa", hannahIp, { port: beforeRevealPort });
+  assert.equal(hidden.status, 200);
+  assert.equal(hidden.json.open, true);
+  assert.equal(hidden.json.reply, null);
+  assert.match(hidden.json.latest.letterText, /Second letter/);
+  assert.equal(hidden.text.includes("elves saved you a seat"), false);
+  assert.equal(hidden.text.includes(olderReply), false);
+
+  const revealed = await call("wainwright.fun", "/kid/santa", hannahIp, { port: revealPort });
+  assert.equal(revealed.status, 200);
+  assert.equal(revealed.json.reply.text, secret);
+  assert.equal(revealed.json.reply.revealAt, "2026-11-16T06:00:00.000Z");
+  assert.equal(revealed.text.includes(olderReply), false);
+
+  const later = await open("/kid/santa", hannahIp);
+  assert.equal(later.json.reply.text, secret);
+  assert.equal(later.text.includes(olderReply), false);
+
+  const joannaAfter = await open("/kid/santa", MAC, { headers: { cookie: "tickets_act_as=joanna" } });
+  assert.equal(joannaAfter.json.child.id, "joanna");
+  assert.equal(joannaAfter.json.reply, null);
+  assert.equal(joannaAfter.text.includes("elves saved you a seat"), false);
+
+  const earlyAdmin = await call("admin.wainwright.fun", "/api/admin/santa-letters", MAC, { port: beforeRevealPort });
+  assert.equal(earlyAdmin.status, 200);
+  const earlyHannah = earlyAdmin.json.letters.find((item: { childId: string }) => item.childId === "hannah");
+  assert.equal(earlyHannah.latest.reply.text, secret);
+  assert.equal(earlyHannah.latest.reply.revealAt, "2026-11-16T06:00:00.000Z");
+  const kidAdminEarly = await call("admin.wainwright.fun", "/api/admin/santa-letters", hannahIp, { port: beforeRevealPort });
+  assert.equal(kidAdminEarly.status, 403);
+  assert.equal(kidAdminEarly.text.includes("elves saved you a seat"), false);
 });

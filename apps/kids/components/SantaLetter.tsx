@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { fetchKidSanta, sendKidSanta, type SantaLetterRecord, type SantaQuestion } from "../lib/kidApi";
+import { fetchKidSanta, sendKidSanta, type SantaLetterRecord, type SantaQuestion, type SantaReply } from "../lib/kidApi";
 import { composeSantaLetter, santaLetterBlocks, SANTA_MAX_DRAWING_BYTES, SANTA_MAX_OWN_LINE, SANTA_MAX_PICKS } from "../../../packages/local/src/santa-catalog";
 
 interface Choice {
@@ -63,6 +63,11 @@ function letterFromChoices(
   });
 }
 
+/** Santa's words, exactly as stored: line breaks and blank lines stay, and nothing is interpreted as markup. */
+function SantaReplyPaper({ text }: { text: string }) {
+  return <div className="santa-paper santa-reply">{text}</div>;
+}
+
 function LetterPaper({ text, drawing }: { text: string; drawing?: string | null }) {
   const blocks = santaLetterBlocks(text);
   return (
@@ -101,6 +106,8 @@ export function SantaLetter() {
   const [drawing, setDrawing] = useState<string | null>(null);
   const [seedDrawing, setSeedDrawing] = useState<string | null>(null);
   const [sent, setSent] = useState<SantaLetterRecord | null>(null);
+  const [reply, setReply] = useState<SantaReply | null>(null);
+  const [showMine, setShowMine] = useState(false);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -120,6 +127,11 @@ export function SantaLetter() {
         setChildId(state.child?.id ?? "");
         setChildName(state.child?.name ?? "");
         setAge(typeof state.age === "number" && Number.isInteger(state.age) && state.age >= 0 ? state.age : null);
+        const nextReply = state.reply && typeof state.reply.text === "string"
+          ? { text: state.reply.text, revealAt: typeof state.reply.revealAt === "string" ? state.reply.revealAt : "" }
+          : null;
+        setReply(nextReply);
+        setShowMine(false);
         if (state.latest) {
           setSent(state.latest);
           setChoices(choicesFromLetter(state.questions, state.latest));
@@ -144,6 +156,7 @@ export function SantaLetter() {
 
   const preview = letterFromChoices(childId, childName, age, questions, choices, ownLine, drawing != null);
   const showForm = editing || !sent;
+  const showingReply = Boolean(reply) && !showForm && !showMine;
 
   function toggle(questionId: string, optionId: string) {
     setHint(null);
@@ -199,6 +212,8 @@ export function SantaLetter() {
         drawing,
       });
       setSent(letter);
+      setReply(null);
+      setShowMine(false);
       setEditing(false);
     } catch (err) {
       setProblem(err instanceof Error ? err.message : "Could not send the letter");
@@ -208,7 +223,7 @@ export function SantaLetter() {
   }
 
   return (
-    <section className={`santa-letter is-${style} mb-8`} aria-label="Letter to Santa">
+    <section className={`santa-letter is-${style} mb-8`} aria-label={showingReply ? "A letter from Santa" : "Letter to Santa"}>
       <div className="santa-sky" aria-hidden="true">
         {Array.from({ length: 12 }, (_, i) => (
           <span key={i} className="santa-flake" style={{ "--i": String(i) } as CSSProperties} />
@@ -219,7 +234,7 @@ export function SantaLetter() {
       </div>
       <div className="santa-body">
         <p className="santa-kicker">Christmas</p>
-        <h2 className="santa-title">Letter to Santa</h2>
+        <h2 className="santa-title">{showingReply ? "A letter from Santa!" : "Letter to Santa"}</h2>
         {showForm ? (
           <>
             <p className="santa-intro">Tell Santa some things you love. Star your favourite if you want to.</p>
@@ -290,10 +305,22 @@ export function SantaLetter() {
               )}
             </div>
           </>
+        ) : showingReply && reply ? (
+          <div className="santa-sent">
+            <SantaReplyPaper text={reply.text} />
+            <button type="button" className="santa-see-mine" onClick={() => setShowMine(true)}>
+              See my letter
+            </button>
+          </div>
         ) : (
           <div className="santa-sent">
-            <p className="santa-on-the-way" role="status">Your letter is on its way to the North Pole!</p>
+            {!reply && <p className="santa-on-the-way" role="status">Your letter is on its way to the North Pole!</p>}
             {sent && <LetterPaper text={sent.letterText} drawing={sent.drawingPng} />}
+            {reply && (
+              <button type="button" className="santa-see-mine" onClick={() => setShowMine(false)}>
+                Back to Santa's letter
+              </button>
+            )}
             <button type="button" className="santa-secondary" onClick={edit}>
               Edit and send again
             </button>

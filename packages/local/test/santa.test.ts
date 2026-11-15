@@ -40,15 +40,21 @@ function questionIds(childId: string, questionId: string): string[] {
 
 interface Memory extends Queryable {
   letters: Record<string, unknown>[];
+  replies: Record<string, unknown>[];
   queries: number;
+  /** Kid reply lookups, so a test can see the clock that was bound into the query. */
+  replyQueries: { sql: string; params: unknown[] }[];
 }
 
 function memoryDb(): Memory {
   const letters: Record<string, unknown>[] = [];
+  const replies: Record<string, unknown>[] = [];
   let id = 0;
   const db: Memory = {
     letters,
+    replies,
     queries: 0,
+    replyQueries: [],
     async query(sql: string, params: unknown[] = []) {
       db.queries += 1;
       if (sql.includes("santa-insert")) {
@@ -70,6 +76,13 @@ function memoryDb(): Memory {
         const mine = letters.filter((row) => row.child_id === params[0]);
         return { rows: mine.length ? [mine[mine.length - 1]] : [] };
       }
+      if (sql.includes("santa-revealed-reply")) {
+        // Returns the row even before reveal_at. The server must still withhold the words.
+        db.replyQueries.push({ sql, params });
+        const found = replies.find((row) => String(row.letter_id) === String(params[0]));
+        return { rows: found ? [found] : [] };
+      }
+      if (sql.includes("santa-reply-list")) return { rows: [...replies] };
       if (sql.includes("santa-children")) {
         return {
           rows: [
@@ -285,10 +298,11 @@ test("three picks and one favourite are stored, a fourth pick or a second favour
   assert.match(((again.body as { letter: { letterText: string } }).letter.letterText), /Second letter/);
 
   const latest = await getSantaLetter(db, "hannah", "Hannah", OPEN);
-  const shown = (latest.body as { open: boolean; style: string; latest: { letterText: string; ownLine: string } }).latest;
+  const shown = (latest.body as { open: boolean; style: string; latest: { letterText: string; ownLine: string }; reply: unknown }).latest;
   assert.equal((latest.body as { open: boolean }).open, true);
   assert.equal((latest.body as { style: string }).style, "reading");
   assert.equal((latest.body as { age: number }).age, 9);
+  assert.equal((latest.body as { reply: unknown }).reply, null);
   assert.match(shown.letterText, /Second letter/);
   assert.equal(shown.ownLine, "Second letter");
 
@@ -301,6 +315,7 @@ test("three picks and one favourite are stored, a fourth pick or a second favour
   assert.equal(rows.find((row) => row.childId === "lydia")?.latest, null);
   assert.equal(rows.find((row) => row.childId === "joanna")?.submissions, 1);
   assert.equal(rows.find((row) => row.childId === "zoe")?.latest?.answers.love.favourite, "science");
+  assert.equal(hannah?.latest && "reply" in hannah.latest ? hannah.latest.reply : "missing", null);
 });
 
 test("one, two and three picks join with British grammar", () => {
@@ -688,6 +703,100 @@ test("a P.S. keeps names and I, and only lowercases an ordinary first word", () 
   assert.equal(lowercaseOwnLineStart("Lydia sang"), "Lydia sang");
 });
 
+test("a reply stays hidden until reveal_at, then the latest letter's words are returned verbatim", async () => {
+  const db = memoryDb();
+  const reveal = new Date("2026-11-16T06:00:00.000Z");
+  const before = new Date(reveal.getTime() - 1);
+  const secret = " \nDear Hannah,\n\nThe elves saved you a seat.\n\n\nKeep looking up.\n ";
+  const older = "This reply belongs to an earlier letter and must stay put.";
+  const wrongChild = `Wrong child. ${secret}`;
+
+  const first = await postSantaLetter(db, "hannah", "Hannah", JSON.stringify({
+    answers: { love: { picks: ["music"], favourite: "music" } },
+  }), null, OPEN);
+  const second = await postSantaLetter(db, "hannah", "Hannah", JSON.stringify({
+    answers: { love: { picks: ["building"] } },
+    ownLine: "Second letter",
+  }), null, OPEN);
+  const firstId = (first.body as { letter: { id: string } }).letter.id;
+  const secondId = (second.body as { letter: { id: string } }).letter.id;
+  assert.notEqual(firstId, secondId);
+
+  db.replies.push(
+    { letter_id: firstId, child_id: "hannah", reply_text: older, reveal_at: reveal },
+    { letter_id: secondId, child_id: "lydia", reply_text: wrongChild, reveal_at: reveal },
+  );
+
+  const mismatched = await getSantaLetter(db, "hannah", "Hannah", OPEN);
+  assert.equal((mismatched.body as { reply: unknown }).reply, null);
+  assert.equal(jsonHas(mismatched.body, "elves saved you a seat"), false);
+  assert.equal(jsonHas(mismatched.body, "earlier letter"), false);
+
+  db.replies.splice(1, 1, { letter_id: secondId, child_id: "hannah", reply_text: secret, reveal_at: reveal });
+
+  const hidden = await getSantaLetter(db, "hannah", "Hannah", before);
+  assert.equal((hidden.body as { reply: unknown }).reply, null);
+  assert.equal((hidden.body as { latest: { ownLine: string } }).latest.ownLine, "Second letter");
+  assert.equal(jsonHas(hidden.body, "elves saved you a seat"), false);
+  assert.equal(jsonHas(hidden.body, "earlier letter"), false);
+  assert.equal(jsonHas(hidden.body, secret), false);
+  const lookup = db.replyQueries.at(-1);
+  assert.match(lookup?.sql ?? "", /letter_id = \$1/);
+  assert.match(lookup?.sql ?? "", /child_id = \$2/);
+  assert.match(lookup?.sql ?? "", /reveal_at <= \$3::timestamptz/);
+  assert.equal(lookup?.params[0], secondId);
+  assert.equal(lookup?.params[1], "hannah");
+  assert.equal(lookup?.params[2] instanceof Date ? (lookup.params[2] as Date).toISOString() : "", before.toISOString());
+
+  const queriesBeforeChildWithNoLetter = db.replyQueries.length;
+  const ethan = await getSantaLetter(db, "ethan", "Ethan", OPEN);
+  assert.equal((ethan.body as { latest: unknown; reply: unknown }).latest, null);
+  assert.equal((ethan.body as { reply: unknown }).reply, null);
+  assert.equal(db.replyQueries.length, queriesBeforeChildWithNoLetter);
+
+  const closed = await getSantaLetter(db, "hannah", "Hannah", CLOSED);
+  assert.deepEqual(closed.body, { open: false });
+  assert.equal(jsonHas(closed.body, "elves saved you a seat"), false);
+
+  // Parents can read a stored reply before the children can, and they see when it will appear.
+  const admin = await listSantaLetters(db);
+  const hannah = (admin.body as { letters: { childId: string; latest: { reply: { text: string; revealAt: string } | null } | null }[] }).letters
+    .find((row) => row.childId === "hannah");
+  assert.equal(hannah?.latest?.reply?.text, secret);
+  assert.equal(hannah?.latest?.reply?.revealAt, reveal.toISOString());
+  assert.equal(jsonHas(hannah?.latest?.reply, "earlier letter"), false);
+
+  const atReveal = await getSantaLetter(db, "hannah", "Hannah", reveal);
+  const shown = (atReveal.body as { reply: { text: string; revealAt: string } | null }).reply;
+  assert.ok(shown);
+  assert.equal(shown.text, secret);
+  assert.equal(shown.revealAt, "2026-11-16T06:00:00.000Z");
+  assert.equal(jsonHas(atReveal.body, older), false);
+
+  const later = await getSantaLetter(db, "hannah", "Hannah", OPEN);
+  assert.equal((later.body as { reply: { text: string } }).reply.text, secret);
+});
+
+function jsonHas(value: unknown, needle: string): boolean {
+  if (typeof value === "string") return value.includes(needle);
+  if (Array.isArray(value)) return value.some((item) => jsonHas(item, needle));
+  if (value && typeof value === "object") return Object.values(value).some((item) => jsonHas(item, needle));
+  return false;
+}
+
+test("the santa replies migration stores no letter text", async () => {
+  const sql = await readFile(path.join(root, "packages/local/migrations/005_santa_replies.sql"), "utf8");
+  assert.match(sql, /CREATE TABLE kids\.santa_replies \(/);
+  assert.match(sql, /id\s+bigserial PRIMARY KEY/);
+  assert.match(sql, /letter_id\s+bigint NOT NULL UNIQUE REFERENCES kids\.santa_letters \(id\) ON UPDATE CASCADE/);
+  assert.match(sql, /child_id\s+text NOT NULL REFERENCES core\.people \(id\) ON UPDATE CASCADE/);
+  assert.match(sql, /reply_text\s+text NOT NULL/);
+  assert.match(sql, /reveal_at\s+timestamptz NOT NULL/);
+  assert.match(sql, /created_at\s+timestamptz NOT NULL DEFAULT now\(\)/);
+  assert.doesNotMatch(sql, /INSERT\s+INTO/i);
+  assert.doesNotMatch(sql, /Hannah|Lydia|Zoe|Ethan|Joanna/);
+});
+
 test("the santa pages and styles stay on this site", async () => {
   const files = [
     "apps/kids/index.html",
@@ -706,4 +815,17 @@ test("the santa pages and styles stay on this site", async () => {
   const css = await readFile(path.join(root, "apps/kids/index.css"), "utf8");
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /\.santa-flake,\s*\n\s*\.santa-twinkle \{\s*\n\s*animation:\s*none/);
+  assert.match(css, /\.santa-paper\.santa-reply\s*\{[^}]*white-space:\s*pre-wrap/);
+  const ui = await readFile(path.join(root, "apps/kids/components/SantaLetter.tsx"), "utf8");
+  assert.match(ui, /A letter from Santa!/);
+  assert.match(ui, /See my letter/);
+  assert.match(ui, /Back to Santa's letter/);
+  assert.match(ui, /className="santa-paper santa-reply">\{text\}/);
+  assert.doesNotMatch(ui, /dangerouslySetInnerHTML/);
+  assert.doesNotMatch(ui, /santaLetterBlocks\(\s*reply/);
+  const adminCss = await readFile(path.join(root, "apps/admin/src/index.css"), "utf8");
+  assert.match(adminCss, /\.santa-admin-reply\s*\{[^}]*white-space:\s*pre-wrap/);
+  const adminUi = await readFile(path.join(root, "apps/admin/src/SantaLettersPanel.tsx"), "utf8");
+  assert.match(adminUi, /santa-admin-reply/);
+  assert.doesNotMatch(adminUi, /santaLetterBlocks\(\s*child\.latest\.reply/);
 });

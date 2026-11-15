@@ -5,6 +5,8 @@
  *   wainwright.fun              the kids' launcher; the child is the device's IP (core.devices), a parent
  *                               may pick a child to look at. /kid/config, /kid/avatar, /kid/profile,
  *                               /kid/internet, /kid/internet/mode, /kid/santa.
+ *                               GET /kid/santa adds reply.text only when the child's
+ *                               latest letter has a reply and now is at or after reveal_at.
  *                               GET /api/ha/homework-domains is the only API that skips the device
  *                               check (Home Assistant is not a device). It needs Authorization: Bearer.
  *   {child}.wainwright.fun      the same launcher, when the label is a child in core.people
@@ -16,7 +18,8 @@
  *                               restrictions, term dates). Parents' devices only; never a child's
  *                               device. Devices are managed here (core.devices), not in Snacks.
  *                               POST /api/children/{child}/end-break ends that child's internet break.
- *                               GET /api/admin/santa-letters is each child's latest letter to Santa.
+ *                               GET /api/admin/santa-letters is each child's latest letter to Santa,
+ *                               including a stored reply and the time it appears on their page.
  *   www.wainwright.fun          301 to wainwright.fun (as the hosted CloudFront function).
  *   anything else               tickets (tickets.wainwright.fun, health checks).
  *

@@ -128,6 +128,12 @@ export interface SantaLetterRecord {
   drawingPng: string | null;
 }
 
+/** Santa's reply, present on GET /kid/santa only after reveal_at. `text` keeps the stored line breaks. */
+export interface SantaReply {
+  text: string;
+  revealAt: string;
+}
+
 export interface SantaFormState {
   open: boolean;
   child?: { id: string; name: string };
@@ -137,6 +143,8 @@ export interface SantaFormState {
   maxPicks?: number;
   questions?: SantaQuestion[];
   latest?: SantaLetterRecord | null;
+  /** Null until a reply for the latest letter has reached its reveal time. */
+  reply?: SantaReply | null;
 }
 
 export async function fetchKidSanta(): Promise<SantaFormState> {
