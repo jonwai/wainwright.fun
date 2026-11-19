@@ -136,6 +136,8 @@ export interface SantaReply {
 
 export interface SantaFormState {
   open: boolean;
+  /** True once children can no longer send or change a letter. Reading still works. */
+  locked?: boolean;
   child?: { id: string; name: string };
   /** Whole years from date of birth, or null when core.people has none. */
   age?: number | null;

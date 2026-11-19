@@ -13,11 +13,19 @@
  * request, so it can sit after "I love" without asking Santa to bring anything.
  *
  * Letters open at SANTA_OPENS_EUROPE_LONDON (Europe/London wall time). That constant is the only start.
+ * Kid writes stop at SANTA_LETTERS_LOCKED_FROM (UTC). Move that instant forward to open the form again.
  * `composeSantaLetter` is the only letter. The on-screen preview and `letter_text` both call it.
  */
 
 /** Europe/London wall time the section and submissions open. `YYYY-MM-DDTHH:mm:ss`. */
 export const SANTA_OPENS_EUROPE_LONDON = "2026-11-15T00:00:00";
+
+/**
+ * UTC instant after which a child can no longer send or change a letter.
+ * Reading stays open: GET still returns a letter already sent, and Santa's reply once `reveal_at` has passed.
+ * Move this forward to open the form again next year.
+ */
+export const SANTA_LETTERS_LOCKED_FROM = "2026-11-19T07:00:00Z";
 
 export const SANTA_TIME_ZONE = "Europe/London";
 export const SANTA_MAX_PICKS = 3;
@@ -293,6 +301,13 @@ export function santaOpensAt(opensAt = SANTA_OPENS_EUROPE_LONDON): Date {
 
 export function santaIsOpen(now: Date, opensAt = SANTA_OPENS_EUROPE_LONDON): boolean {
   return now.getTime() >= santaOpensAt(opensAt).getTime();
+}
+
+/** True once `now` has reached {@link SANTA_LETTERS_LOCKED_FROM}. Kid writes stop; reading does not. */
+export function santaLettersLocked(now: Date, lockedFrom = SANTA_LETTERS_LOCKED_FROM): boolean {
+  const at = Date.parse(lockedFrom);
+  if (Number.isNaN(at)) throw new Error("Santa lock must be an ISO UTC time");
+  return now.getTime() >= at;
 }
 
 export interface SantaLetterPick {

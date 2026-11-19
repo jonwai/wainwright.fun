@@ -1,6 +1,8 @@
 /**
  * Store and read letters to Santa. The child is the device (or a parent's act-as choice),
  * the same way /kid/internet works. Submissions before SANTA_OPENS_EUROPE_LONDON are refused.
+ * From SANTA_LETTERS_LOCKED_FROM, every kid write (this is the only insert into kids.santa_letters)
+ * is refused. GET still returns the latest letter, and a reply once reveal_at has passed.
  * Every send is a new row; the launcher and the admin show the latest.
  *
  * A reply lives on that letter in kids.santa_replies. The launcher receives the words only
@@ -16,6 +18,7 @@ import {
   SANTA_MAX_DRAWING_BYTES,
   santaChild,
   santaIsOpen,
+  santaLettersLocked,
   validateSantaAnswers,
   type SantaStoredAnswers,
 } from "./santa-catalog.js";
@@ -148,10 +151,11 @@ export async function childAgeYears(db: Queryable, childId: string, now: Date): 
   return age;
 }
 
-function publicForm(childId: string, childName: string, age: number | null, latest: StoredSantaLetter | null, reply: SantaReply | null) {
+function publicForm(childId: string, childName: string, age: number | null, latest: StoredSantaLetter | null, reply: SantaReply | null, locked: boolean) {
   const child = santaChild(childId);
   return {
     open: true as const,
+    locked,
     child: { id: childId, name: childName },
     age,
     style: child.style,
@@ -164,7 +168,7 @@ function publicForm(childId: string, childName: string, age: number | null, late
 
 export async function getSantaLetter(db: Queryable, childId: string, childName: string, now = new Date()): Promise<Result> {
   if (!santaIsOpen(now)) return { status: 200, body: { open: false } };
-  const age = await childAgeYears(db, childId, now);
+  const locked = santaLettersLocked(now);
   const { rows } = await db.query(
     `-- santa-latest
      SELECT id, child_id, submitted_at, answers, own_line, letter_text, drawing_png, host(client_ip) AS client_ip
@@ -175,8 +179,11 @@ export async function getSantaLetter(db: Queryable, childId: string, childName: 
     [childId],
   );
   const latest = rows[0] ? present(rows[0]) : null;
+  // A child who never wrote gets no questions and no form. The launcher renders nothing for them.
+  if (locked && !latest) return { status: 200, body: { open: true, locked: true, latest: null, reply: null } };
+  const age = await childAgeYears(db, childId, now);
   const reply = latest ? await revealedReply(db, latest.id, childId, now) : null;
-  return { status: 200, body: publicForm(childId, childName, age, latest, reply) };
+  return { status: 200, body: publicForm(childId, childName, age, latest, reply, locked) };
 }
 
 /**
@@ -199,6 +206,7 @@ async function revealedReply(db: Queryable, letterId: string, childId: string, n
 
 export async function postSantaLetter(db: Queryable, childId: string, childName: string, rawBody: string, clientIp: string | null, now = new Date()): Promise<Result> {
   if (!santaIsOpen(now)) throw new HttpError(403, "Letters to Santa are not open yet");
+  if (santaLettersLocked(now)) throw new HttpError(403, "Your letter has already gone to the North Pole");
   const input = rawBody.trim() ? JSON.parse(rawBody) : {};
   const drawing = decodeSantaDrawing(asRecordDrawing(input));
   const age = await childAgeYears(db, childId, now);
