@@ -16,6 +16,7 @@ import path from "node:path";
 import { after, before, test } from "node:test";
 import pg from "pg";
 import { haClientFromEnv } from "../src/ha.ts";
+import { SANTA_LETTERS_LOCKED_FROM } from "../src/santa-catalog.ts";
 
 const url = process.env.KIDS_TEST_DATABASE_URL;
 // @ts-ignore built bundle
@@ -109,6 +110,8 @@ let openPort = 0;
 let beforeRevealPort = 0;
 /** Letters are open, at the exact reveal instant. */
 let revealPort = 0;
+/** Letters are open and kid writes are locked (SANTA_LETTERS_LOCKED_FROM). */
+let lockedPort = 0;
 const HA_TOKEN = "ha-test-token";
 const DOMAINS_TOKEN = "domains-test-token";
 let haTokenFile = "";
@@ -279,6 +282,7 @@ before(async () => {
   openPort = await listen(createLocalSites({ ...options, now: () => new Date("2026-11-16T08:00:00.000Z"), signer: { certFile, keyFile } }));
   beforeRevealPort = await listen(createLocalSites({ ...options, now: () => new Date("2026-11-16T05:59:59.999Z"), signer: { certFile, keyFile } }));
   revealPort = await listen(createLocalSites({ ...options, now: () => new Date("2026-11-16T06:00:00.000Z"), signer: { certFile, keyFile } }));
+  lockedPort = await listen(createLocalSites({ ...options, now: () => new Date(SANTA_LETTERS_LOCKED_FROM), signer: { certFile, keyFile } }));
 });
 
 after(async () => {
@@ -918,6 +922,19 @@ test("a letter to Santa stays hidden until 15 Nov 2026 London, then the device's
   assert.match(refused.json.error, /not open/i);
   assert.equal(Number((await pool.query("SELECT count(*)::int AS n FROM kids.santa_letters")).rows[0].n), before);
 
+  const locked = (pathname: string, ip: string | null, init?: Parameters<typeof call>[3]) => call("wainwright.fun", pathname, ip, { ...init, port: lockedPort });
+  const joannaBefore = await locked("/kid/santa", MAC, { headers: { cookie: "tickets_act_as=joanna" } });
+  assert.equal(joannaBefore.status, 200);
+  assert.deepEqual(joannaBefore.json, { open: true, locked: true, latest: null, reply: null });
+  const joannaWrite = await locked("/kid/santa", MAC, {
+    method: "POST",
+    headers: { cookie: "tickets_act_as=joanna" },
+    body: { answers: { love: { picks: ["books"], favourite: "books" } } },
+  });
+  assert.equal(joannaWrite.status, 403);
+  assert.equal(joannaWrite.json.error, "Your letter has already gone to the North Pole");
+  assert.equal(Number((await pool.query("SELECT count(*)::int AS n FROM kids.santa_letters")).rows[0].n), before);
+
   const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
   const open = (pathname: string, ip: string | null, init?: Parameters<typeof call>[3]) => call("wainwright.fun", pathname, ip, { ...init, port: openPort });
   const form = await open("/kid/santa", hannahIp);
@@ -1069,4 +1086,35 @@ test("a letter to Santa stays hidden until 15 Nov 2026 London, then the device's
   const kidAdminEarly = await call("admin.wainwright.fun", "/api/admin/santa-letters", hannahIp, { port: beforeRevealPort });
   assert.equal(kidAdminEarly.status, 403);
   assert.equal(kidAdminEarly.text.includes("elves saved you a seat"), false);
+
+  const letterSnapshot = (await pool.query(
+    `SELECT id, child_id, own_line, letter_text, host(client_ip) AS client_ip, octet_length(drawing_png)::int AS drawing_bytes
+     FROM kids.santa_letters ORDER BY id`,
+  )).rows;
+  const hannahLockedPost = await locked("/kid/santa", hannahIp, {
+    method: "POST",
+    body: { answers: { love: { picks: ["building"], favourite: "building" } }, ownLine: "Too late" },
+  });
+  assert.equal(hannahLockedPost.status, 403);
+  assert.deepEqual(hannahLockedPost.json, { error: "Your letter has already gone to the North Pole" });
+  const letterAfter = (await pool.query(
+    `SELECT id, child_id, own_line, letter_text, host(client_ip) AS client_ip, octet_length(drawing_png)::int AS drawing_bytes
+     FROM kids.santa_letters ORDER BY id`,
+  )).rows;
+  assert.deepEqual(letterAfter, letterSnapshot);
+
+  const hannahLocked = await locked("/kid/santa", hannahIp);
+  assert.equal(hannahLocked.status, 200);
+  assert.equal(hannahLocked.json.open, true);
+  assert.equal(hannahLocked.json.locked, true);
+  assert.match(hannahLocked.json.latest.letterText, /Second letter/);
+  assert.equal(hannahLocked.json.reply.text, secret);
+  assert.equal(hannahLocked.json.reply.revealAt, "2026-11-16T06:00:00.000Z");
+  assert.equal(hannahLocked.text.includes(olderReply), false);
+
+  const adminLocked = await call("admin.wainwright.fun", "/api/admin/santa-letters", MAC, { port: lockedPort });
+  assert.equal(adminLocked.status, 200);
+  const lockedHannah = adminLocked.json.letters.find((item: { childId: string }) => item.childId === "hannah");
+  assert.match(lockedHannah.latest.letterText, /Second letter/);
+  assert.equal(lockedHannah.latest.reply.text, secret);
 });

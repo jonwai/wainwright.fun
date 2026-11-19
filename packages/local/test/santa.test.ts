@@ -18,6 +18,8 @@ import {
   santaChild,
   santaIsOpen,
   santaLetterBlocks,
+  santaLettersLocked,
+  SANTA_LETTERS_LOCKED_FROM,
   SANTA_OPENS_EUROPE_LONDON,
   type SantaLetterSection,
 } from "../src/santa-catalog.ts";
@@ -784,6 +786,95 @@ function jsonHas(value: unknown, needle: string): boolean {
   return false;
 }
 
+test("letters lock at 19 Nov 2026 07:00 UTC: a send is refused and a child with none gets no form", async () => {
+  const db = memoryDb();
+  const lockedAt = new Date(SANTA_LETTERS_LOCKED_FROM);
+  assert.equal(SANTA_LETTERS_LOCKED_FROM, "2026-11-19T07:00:00Z");
+  assert.equal(lockedAt.toISOString(), "2026-11-19T07:00:00.000Z");
+  assert.equal(santaLettersLocked(new Date(lockedAt.getTime() - 1)), false);
+  assert.equal(santaLettersLocked(lockedAt), true);
+  assert.equal(santaLettersLocked(new Date("2026-12-25T00:00:00.000Z")), true);
+  assert.equal(santaLettersLocked(OPEN), false);
+
+  const stillOpen = await getSantaLetter(db, "joanna", "Joanna", new Date(lockedAt.getTime() - 1));
+  assert.equal((stillOpen.body as { open: boolean; locked: boolean }).open, true);
+  assert.equal((stillOpen.body as { locked: boolean }).locked, false);
+  assert.equal(Array.isArray((stillOpen.body as { questions: unknown }).questions), true);
+
+  const sent = await postSantaLetter(db, "hannah", "Hannah", JSON.stringify({
+    answers: { love: { picks: ["music"], favourite: "music" } },
+    ownLine: "Keep this",
+  }), "192.168.1.182", OPEN);
+  assert.equal(sent.status, 200);
+  const savedId = (sent.body as { letter: { id: string } }).letter.id;
+  const before = db.letters.map((row) => ({ ...row }));
+  const queriesAfterSave = db.queries;
+
+  const lockedMessage = "Your letter has already gone to the North Pole";
+  await assert.rejects(
+    () => postSantaLetter(db, "hannah", "Hannah", JSON.stringify({
+      answers: { love: { picks: ["building"], favourite: "building" } },
+      ownLine: "Too late",
+    }), "192.168.1.182", lockedAt),
+    (error: unknown) => {
+      assert.ok(error instanceof HttpError);
+      assert.equal(error.status, 403);
+      assert.equal(error.message, lockedMessage);
+      return true;
+    },
+  );
+  await assert.rejects(
+    () => postSantaLetter(db, "joanna", "Joanna", "{not json", null, new Date("2026-12-25T12:00:00.000Z")),
+    (error: unknown) => {
+      assert.ok(error instanceof HttpError);
+      assert.equal(error.status, 403);
+      assert.equal(error.message, lockedMessage);
+      return true;
+    },
+  );
+  assert.equal(db.queries, queriesAfterSave, "a locked send does not touch the database");
+  assert.deepEqual(db.letters, before);
+  assert.equal(db.letters.length, 1);
+
+  const secret = " \nDear Hannah,\n\nThe elves saved you a seat.\n ";
+  const reveal = new Date("2026-11-16T06:00:00.000Z");
+  db.replies.push({ letter_id: savedId, child_id: "hannah", reply_text: secret, reveal_at: new Date("2026-12-25T00:00:00.000Z") });
+
+  const waiting = await getSantaLetter(db, "hannah", "Hannah", lockedAt);
+  assert.equal((waiting.body as { open: boolean; locked: boolean }).open, true);
+  assert.equal((waiting.body as { locked: boolean }).locked, true);
+  assert.equal((waiting.body as { reply: unknown }).reply, null);
+  assert.match((waiting.body as { latest: { letterText: string; ownLine: string } }).latest.letterText, /Keep this/);
+  assert.equal((waiting.body as { latest: { ownLine: string } }).latest.ownLine, "Keep this");
+  assert.equal(jsonHas(waiting.body, "elves saved you a seat"), false);
+
+  db.replies[0].reveal_at = reveal;
+  const shown = await getSantaLetter(db, "hannah", "Hannah", lockedAt);
+  assert.equal((shown.body as { locked: boolean }).locked, true);
+  const reply = (shown.body as { reply: { text: string; revealAt: string }; latest: { letterText: string } });
+  assert.equal(reply.reply.text, secret);
+  assert.equal(reply.reply.revealAt, "2026-11-16T06:00:00.000Z");
+  assert.match(reply.latest.letterText, /Keep this/);
+  assert.equal(jsonHas(shown.body, "earlier letter"), false);
+
+  const joanna = await getSantaLetter(db, "joanna", "Joanna", lockedAt);
+  const joannaBody = joanna.body as Record<string, unknown>;
+  assert.equal(joanna.status, 200);
+  assert.deepEqual(joannaBody, { open: true, locked: true, latest: null, reply: null });
+  assert.equal(Object.hasOwn(joannaBody, "questions"), false);
+  assert.equal(jsonHas(joanna.body, "elves saved you a seat"), false);
+  assert.equal(db.letters.length, 1);
+  assert.deepEqual(db.letters, before);
+
+  const admin = await listSantaLetters(db);
+  const rows = (admin.body as { letters: { childId: string; submissions: number; latest: { letterText: string; reply: { text: string } | null } | null }[] }).letters;
+  const hannah = rows.find((row) => row.childId === "hannah");
+  assert.equal(hannah?.submissions, 1);
+  assert.match(hannah?.latest?.letterText ?? "", /Keep this/);
+  assert.equal(hannah?.latest?.reply?.text, secret);
+  assert.equal(rows.find((row) => row.childId === "joanna")?.latest, null);
+});
+
 test("the santa replies migration stores no letter text", async () => {
   const sql = await readFile(path.join(root, "packages/local/migrations/005_santa_replies.sql"), "utf8");
   assert.match(sql, /CREATE TABLE kids\.santa_replies \(/);
@@ -821,6 +912,11 @@ test("the santa pages and styles stay on this site", async () => {
   assert.match(ui, /See my letter/);
   assert.match(ui, /Back to Santa's letter/);
   assert.match(ui, /className="santa-paper santa-reply">\{text\}/);
+  assert.match(ui, /const showForm = !locked && \(editing \|\| !sent\)/);
+  assert.match(ui, /if \(locked && !sent\) return null/);
+  assert.match(ui, /if \(isLocked && !state\.latest\)/);
+  assert.match(ui, /\{!locked && \([\s\S]*?Edit and send again/);
+  assert.doesNotMatch(ui, /write again|resubmit/i);
   assert.doesNotMatch(ui, /dangerouslySetInnerHTML/);
   assert.doesNotMatch(ui, /santaLetterBlocks\(\s*reply/);
   const adminCss = await readFile(path.join(root, "apps/admin/src/index.css"), "utf8");

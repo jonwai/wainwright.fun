@@ -92,10 +92,14 @@ function LetterPaper({ text, drawing }: { text: string; drawing?: string | null 
 
 /**
  * Festive letter at the top of the home-network launcher. The server decides whether
- * it is open and which choices this child gets. Before opening day this renders nothing.
+ * it is open, whether writing is locked, and which choices this child gets.
+ * Before opening day this renders nothing. Once locked, a child who never wrote
+ * also renders nothing. A letter already sent stays on the page, read-only,
+ * with Santa's reply after its reveal time and the "See my letter" toggle.
  */
 export function SantaLetter() {
   const [hidden, setHidden] = useState(false);
+  const [locked, setLocked] = useState(false);
   const [questions, setQuestions] = useState<SantaQuestion[] | null>(null);
   const [style, setStyle] = useState<"reading" | "tiles">("tiles");
   const [childId, setChildId] = useState("");
@@ -118,7 +122,18 @@ export function SantaLetter() {
     void fetchKidSanta()
       .then((state) => {
         if (cancelled) return;
-        if (!state.open || !state.questions) {
+        if (!state.open) {
+          setHidden(true);
+          return;
+        }
+        const isLocked = state.locked === true;
+        setLocked(isLocked);
+        // No letter and writing is closed: nothing new on the page, and no form.
+        if (isLocked && !state.latest) {
+          setHidden(true);
+          return;
+        }
+        if (!state.questions) {
           setHidden(true);
           return;
         }
@@ -153,9 +168,10 @@ export function SantaLetter() {
   }, []);
 
   if (hidden || !questions) return null;
+  if (locked && !sent) return null;
 
   const preview = letterFromChoices(childId, childName, age, questions, choices, ownLine, drawing != null);
-  const showForm = editing || !sent;
+  const showForm = !locked && (editing || !sent);
   const showingReply = Boolean(reply) && !showForm && !showMine;
 
   function toggle(questionId: string, optionId: string) {
@@ -183,6 +199,7 @@ export function SantaLetter() {
   }
 
   function edit() {
+    if (locked) return;
     if (sent && questions) {
       setChoices(choicesFromLetter(questions, sent));
       setOwnLine(sent.ownLine ?? "");
@@ -194,6 +211,7 @@ export function SantaLetter() {
   }
 
   async function send() {
+    if (locked || !questions) return;
     if (!preview) {
       setProblem("Choose at least one thing you love");
       return;
@@ -321,9 +339,11 @@ export function SantaLetter() {
                 Back to Santa's letter
               </button>
             )}
-            <button type="button" className="santa-secondary" onClick={edit}>
-              Edit and send again
-            </button>
+            {!locked && (
+              <button type="button" className="santa-secondary" onClick={edit}>
+                Edit and send again
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -7,6 +7,8 @@
  *                               /kid/internet, /kid/internet/mode, /kid/santa.
  *                               GET /kid/santa adds reply.text only when the child's
  *                               latest letter has a reply and now is at or after reveal_at.
+ *                               From SANTA_LETTERS_LOCKED_FROM, POST /kid/santa is 403 and
+ *                               GET sets locked. A child with no letter gets no questions.
  *                               GET /api/ha/homework-domains is the only API that skips the device
  *                               check (Home Assistant is not a device). It needs Authorization: Bearer.
  *   {child}.wainwright.fun      the same launcher, when the label is a child in core.people
